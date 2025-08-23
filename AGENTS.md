@@ -8,7 +8,7 @@ This project provides a command-line tool named `gh-pr-rev-md` (alias: `gh-pr-re
 
 ## Getting Started
 
-To get started, you need Python 3.8+ and `uv`.
+To get started, you need Python 3.9+ and `uv`.
 
 1.  **Clone the repository:**
     ```bash
