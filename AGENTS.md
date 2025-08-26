@@ -45,10 +45,10 @@ The output will be a markdown formatted list of all review comments on the pull 
 
 ## Code Style
 
-This project uses the `black` code formatter for Python. Before committing any changes, please format your code with:
+This project uses `ruff` for code formatting and linting for Python. Before committing any changes, please format your code with:
 
 ```bash
-black .
+uv run ruff check --fix .
 ```
 
 ## Architecture
