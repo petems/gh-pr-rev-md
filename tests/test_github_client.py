@@ -2,6 +2,7 @@
 
 import pytest
 from unittest import mock
+import requests
 
 from gh_pr_rev_md.github_client import GitHubAPIError, GitHubClient
 
@@ -236,6 +237,59 @@ def test_retries_exhaust_then_error(mock_post):
     client = GitHubClient("t", max_retries=3, backoff_factor=0)
     with pytest.raises(GitHubAPIError):
         client.get_pr_review_comments("owner", "repo", 1)
+
+
+@mock.patch("requests.Session.post")
+def test_retries_on_exception_then_success(mock_post):
+    """Client retries on transient exceptions then succeeds."""
+    threads = [
+        {
+            "isResolved": False,
+            "comments": {
+                "nodes": [
+                    {
+                        "id": "1",
+                        "author": {"login": "u"},
+                        "body": "ok",
+                        "createdAt": "2023-01-01T00:00:00Z",
+                        "updatedAt": "2023-01-01T00:00:00Z",
+                        "path": "f",
+                        "diffHunk": "",
+                        "position": 1,
+                        "url": "u",
+                        "line": 1,
+                    }
+                ]
+            },
+        }
+    ]
+    ok_json = mock_graphql_response(threads)
+    mock_post.side_effect = [
+        requests.Timeout("Timed out"),
+        requests.ConnectionError("Connection failed"),
+        _resp(200, ok_json),
+    ]
+
+    client = GitHubClient("t", max_retries=3, backoff_factor=0)
+    comments = client.get_pr_review_comments("owner", "repo", 1)
+    assert len(comments) == 1
+    assert mock_post.call_count == 3
+
+
+@mock.patch("requests.Session.post")
+def test_retries_on_exception_exhaust_then_error(mock_post):
+    """Client raises after exhausting retries on exceptions."""
+    mock_post.side_effect = [
+        requests.Timeout("Timed out"),
+        requests.ConnectionError("Connection failed"),
+        requests.Timeout("Timed out again"),
+    ]
+
+    client = GitHubClient("t", max_retries=3, backoff_factor=0)
+    with pytest.raises(GitHubAPIError) as exc_info:
+        client.get_pr_review_comments("owner", "repo", 1)
+    assert "Request failed after 3 retries" in str(exc_info.value)
+    assert mock_post.call_count == 3
 
 
 # --- Tests for find_pr_by_branch method ---
