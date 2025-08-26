@@ -1,0 +1,53 @@
+[project]
+name = "gh-pr-rev-md"
+version = "0.1.0"
+description = "CLI tool to fetch GitHub PR review comments and format as markdown"
+authors = [{name = "Peter Souter", email = "p.morsou+pypi@gmail.com"}]
+requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "MIT"}
+keywords = ["github", "pull-request", "review", "cli", "markdown"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "click>=8.0.0",
+    "requests>=2.25.0",
+    "PyYAML>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/petems/gh-pr-rev-md"
+Repository = "https://github.com/petems/gh-pr-rev-md"
+Issues = "https://github.com/petems/gh-pr-rev-md/issues"
+
+[project.scripts]
+gh-pr-rev-md = "gh_pr_rev_md.cli:main"
+
+[tool.setuptools]
+packages = ["gh_pr_rev_md"]
+
+[project.optional-dependencies]
+dev = [
+    "bandit[sarif]>=1.8.6",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-randomly>=3.15.0",
+    "ruff>=0.5.0",
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=2.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

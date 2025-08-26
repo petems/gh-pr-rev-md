@@ -1,0 +1,40 @@
+---
+globs: *.py
+description: Quick reference for development, testing, and docs commands
+---
+# Development Commands
+
+Install locally:
+```bash
+make install
+make activate
+make run
+```
+
+Run the CLI during development:
+```bash
+uv python -m gh_pr_rev_md.cli <pr_url>
+```
+
+Authentication:
+- XDG config under `$XDG_CONFIG_HOME/gh-pr-rev-md/config.yaml`
+- `GITHUB_TOKEN` env var
+- Or pass `--token` on the CLI (not recomended)
+- You can also run with no token but likely quickly rate limited (and we warn on that)
+
+Lint and tests:
+```bash
+uvx ruff check --fix .
+uv run -q -m pytest -n auto
+uv run -q -m pytest -n auto --cov=gh_pr_rev_md --cov-report=xml --cov-report=term
+```
+
+> We always run ruff for linting and pytests for unit tests before we push up to the git remote. If it fails, we should try to fix but we can force if needed.
+
+Docs (Sphinx):
+```bash
+make docs        # build to docs/_build/html
+make docs-serve  # serve locally
+make docs-clean  # clean outputs
+```
+

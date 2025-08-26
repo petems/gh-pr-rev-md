@@ -1,0 +1,20 @@
+---
+alwaysApply: true
+---
+# Project Structure & Flow
+
+This repository is `gh-pr-rev-md`, a Python CLI that fetches GitHub pull request review comments and formats them as Markdown.
+
+- Entry point CLI: [gh_pr_rev_md/cli.py](mdc:gh_pr_rev_md/cli.py)
+- GitHub API client: [gh_pr_rev_md/github_client.py](mdc:gh_pr_rev_md/github_client.py)
+- Markdown formatter: [gh_pr_rev_md/formatter.py](mdc:gh_pr_rev_md/formatter.py)
+- Config helpers: [gh_pr_rev_md/config.py](mdc:gh_pr_rev_md/config.py)
+
+High-level flow:
+1. CLI parses PR URL and options
+2. GitHub client fetches review comments (paginated)
+3. Formatter renders Markdown
+4. Output goes to stdout or a file
+
+When navigating code or adding features, start from the CLI and trace into the client and formatter.
+
