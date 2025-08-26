@@ -29,16 +29,28 @@ To get started, you need Python 3.9+ and `uv`.
 
 ## Usage
 
-To use the tool, run it with a GitHub pull request URL:
+Run it with a GitHub pull request URL. The default invocation routes to the `fetch` command, but you can specify it explicitly if you prefer:
 
 ```bash
+# Default form (no subcommand):
 gh-pr-rev-md https://github.com/owner/repo/pull/123
+
+# Explicit subcommand:
+gh-pr-rev-md fetch https://github.com/owner/repo/pull/123
 ```
 
 You can also pass the token directly as an argument:
 
 ```bash
 gh-pr-rev-md --token your_token https://github.com/owner/repo/pull/123
+```
+
+Check the version:
+
+```bash
+gh-pr-rev-md version
+gh-pr-rev-md --version
+gh-pr-rev-md -v
 ```
 
 The output will be a markdown formatted list of all review comments on the pull request, printed to standard output.

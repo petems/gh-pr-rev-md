@@ -785,13 +785,16 @@ def test_get_current_branch_pr_url_api_fallback_to_gh_cli():
 # --- Tests for version command ---
 
 
+from gh_pr_rev_md import __version__
+
+
 def test_version_command(runner):
     """Test the version command."""
     with mock.patch('gh_pr_rev_md.cli.get_git_ref') as mock_get_git_ref:
         mock_get_git_ref.return_value = 'abcdef1'
         result = runner.invoke(cli.main, ['version'])
         assert result.exit_code == 0
-        assert 'Version: 0.1.0' in result.output
+        assert f'Version: {__version__}' in result.output
         assert 'Git Ref: abcdef1' in result.output
 
 
@@ -801,7 +804,7 @@ def test_version_command_no_git_ref(runner):
         mock_get_git_ref.return_value = None
         result = runner.invoke(cli.main, ['version'])
         assert result.exit_code == 0
-        assert 'Version: 0.1.0' in result.output
+        assert f'Version: {__version__}' in result.output
         assert 'Git Ref' not in result.output
 
 
@@ -809,4 +812,32 @@ def test_version_option(runner):
     """Test the --version option."""
     result = runner.invoke(cli.main, ['--version'])
     assert result.exit_code == 0
-    assert 'gh-pr-rev-md version 0.1.0' in result.output
+    assert f'gh-pr-rev-md version {__version__}' in result.output
+
+
+def test_version_option_short_flag(runner):
+    """Test the -v short version option."""
+    result = runner.invoke(cli.main, ['-v'])
+    assert result.exit_code == 0
+    assert f'gh-pr-rev-md version {__version__}' in result.output
+
+
+def test_default_command_invocation_without_fetch(runner, mock_github_client, mock_formatter):
+    """Invoking without a subcommand should default to fetch."""
+    with runner.isolated_filesystem():
+        # Arrange mocks
+        mock_github_client.get_pr_review_comments.return_value = []
+        mock_formatter.return_value = "# Empty"
+
+        # Act without 'fetch' subcommand
+        result = runner.invoke(
+            cli.main,
+            [
+                'https://github.com/owner/repo/pull/123',
+                '--token', 'test_token',
+            ],
+        )
+
+        # Assert identical behavior to explicit fetch
+        assert result.exit_code == 0
+        assert '# Empty' in result.output
