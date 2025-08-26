@@ -1,7 +1,8 @@
 """GitHub API client for fetching PR review comments."""
+import time
+from typing import Any, Dict, List, Optional
 
 import requests
-from typing import List, Dict, Any, Optional
 
 
 class GitHubAPIError(Exception):
@@ -13,18 +14,63 @@ class GitHubAPIError(Exception):
 class GitHubClient:
     """Client for interacting with GitHub API."""
 
-    def __init__(self, token: Optional[str] = None):
+    def __init__(self, token: Optional[str] = None, *, max_retries: int = 3, backoff_factor: float = 0.5):
+        """Initialize client.
+
+        Args:
+            token: GitHub token
+            max_retries: Number of attempts for transient failures (>=1)
+            backoff_factor: Base seconds for exponential backoff; set 0 in tests
+        """
         self.token = token
         self.graphql_url = "https://api.github.com/graphql"
         self.session = requests.Session()
+        self._max_retries = max(1, int(max_retries))
+        self._backoff_factor = float(backoff_factor)
         headers: Dict[str, str] = {
-            "Accept": "application/vnd.github.v3+json",
+            "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "gh-pr-rev-md",
         }
         if token:
-            headers["Authorization"] = f"bearer {token}"
+            headers["Authorization"] = f"Bearer {token}"
         self.session.headers.update(headers)
+
+    # --- Internal helpers ---
+    def _sleep_backoff(self, attempt: int) -> None:
+        if self._backoff_factor <= 0:
+            return
+        delay = self._backoff_factor * (2 ** (attempt - 1))
+        time.sleep(min(delay, 8.0))
+
+    def _should_retry(self, status_code: Optional[int], exc: Optional[Exception]) -> bool:
+        if exc is not None:
+            return isinstance(exc, (requests.Timeout, requests.ConnectionError))
+        if status_code is None:
+            return False
+        return status_code == 429 or 500 <= status_code < 600
+
+    def _post_graphql(self, payload: Dict[str, Any]) -> requests.Response:
+        last_exc: Optional[Exception] = None
+        last_status: Optional[int] = None
+        last_resp: Optional[requests.Response] = None
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                resp = self.session.post(self.graphql_url, json=payload, timeout=30)
+                last_resp = resp
+                last_status = resp.status_code
+                if not self._should_retry(last_status, None):
+                    return resp
+            except Exception as e:
+                last_exc = e
+                if not self._should_retry(None, e):
+                    raise
+            if attempt < self._max_retries:
+                self._sleep_backoff(attempt)
+        if last_resp is not None:
+            return last_resp
+        assert last_exc is not None
+        raise last_exc
 
     def get_pr_review_comments(
         self,
@@ -42,11 +88,7 @@ class GitHubClient:
             query, variables = self._build_graphql_query(
                 owner, repo, pr_number, threads_cursor
             )
-            response = self.session.post(
-                self.graphql_url,
-                json={"query": query, "variables": variables},
-                timeout=30,
-            )
+            response = self._post_graphql({"query": query, "variables": variables})
 
             if response.status_code != 200:
                 raise GitHubAPIError(
@@ -149,13 +191,8 @@ class GitHubClient:
                 "threadId": thread_id,
                 "commentsCursor": comments_cursor,
             }
-
-            response = self.session.post(
-                self.graphql_url,
-                json={"query": query, "variables": variables},
-                timeout=30,
-            )
-
+            response = self._post_graphql({"query": query, "variables": variables})
+            
             if response.status_code != 200:
                 raise GitHubAPIError(
                     f"GitHub API error: {response.status_code} - {response.text}"
@@ -278,9 +315,7 @@ class GitHubClient:
             "branchName": branch_name,
         }
 
-        response = self.session.post(
-            self.graphql_url, json={"query": query, "variables": variables}, timeout=30
-        )
+        response = self._post_graphql({"query": query, "variables": variables})
 
         if response.status_code != 200:
             raise GitHubAPIError(
@@ -302,5 +337,4 @@ class GitHubClient:
         for pr in prs:
             if pr.get("state") == "OPEN" and pr.get("headRefName") == branch_name:
                 return pr.get("number")
-
         return None
