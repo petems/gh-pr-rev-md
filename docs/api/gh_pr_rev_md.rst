@@ -9,37 +9,45 @@ gh\_pr\_rev\_md.cli module
 
 .. automodule:: gh_pr_rev_md.cli
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 gh\_pr\_rev\_md.config module
 -----------------------------
 
 .. automodule:: gh_pr_rev_md.config
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 gh\_pr\_rev\_md.formatter module
 --------------------------------
 
 .. automodule:: gh_pr_rev_md.formatter
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
+
+gh\_pr\_rev\_md.git\_utils module
+---------------------------------
+
+.. automodule:: gh_pr_rev_md.git_utils
+   :members:
+   :show-inheritance:
+   :undoc-members:
 
 gh\_pr\_rev\_md.github\_client module
 -------------------------------------
 
 .. automodule:: gh_pr_rev_md.github_client
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 Module contents
 ---------------
 
 .. automodule:: gh_pr_rev_md
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
