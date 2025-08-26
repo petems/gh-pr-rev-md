@@ -1,0 +1,54 @@
+name: Security
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1" # weekly Monday 03:17 UTC
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  bandit:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup uv
+        uses: ./.github/actions/python-setup
+        with:
+          run-install: false
+      - name: Create venv
+        run: |
+          uv venv
+      - name: Install tools
+        run: |
+          uv pip install 'bandit[sarif,toml]'
+      - name: Run Bandit
+        continue-on-error: true
+        run: uv run bandit -r gh_pr_rev_md -f sarif -o bandit.sarif
+      - name: Upload SARIF (Bandit)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit.sarif
+
+  bandit-console:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup uv
+        uses: ./.github/actions/python-setup
+        with:
+          run-install: false
+      - name: Create venv
+        run: |
+          uv venv
+      - name: Install bandit
+        run: |
+          uv pip install bandit
+      - name: Run Bandit (console)
+        continue-on-error: true
+        run: uv run bandit -r gh_pr_rev_md -f txt

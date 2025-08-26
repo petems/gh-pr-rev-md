@@ -1,0 +1,29 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv and deps
+        uses: ./.github/actions/python-setup
+        with:
+          python-version: ${{ matrix.python-version }}
+          install-args: ".[dev]"
+
+      - name: Ruff version
+        run: uv run ruff --version
+
+      - name: Run Ruff
+        run: uv run ruff check .
+
+
