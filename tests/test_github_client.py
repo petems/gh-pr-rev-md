@@ -3,7 +3,7 @@
 import pytest
 from unittest import mock
 
-from gh_pr_rev_md.github_client import GitHubClient, GitHubAPIError
+from gh_pr_rev_md.github_client import GitHubAPIError, GitHubClient
 
 
 @pytest.fixture
@@ -26,6 +26,16 @@ def mock_graphql_response(threads):
             }
         }
     }
+
+
+def _resp(status_code=200, json_body=None, text=""):
+    m = mock.MagicMock()
+    m.status_code = status_code
+    if json_body is None:
+        json_body = {}
+    m.json.return_value = json_body
+    m.text = text
+    return m
 
 
 def _comment_node(comment_id, body, position=1):
@@ -175,6 +185,57 @@ def test_http_error(mock_post, github_client):
     with pytest.raises(GitHubAPIError) as exc_info:
         github_client.get_pr_review_comments("owner", "repo", 123)
     assert "GitHub API error: 500" in str(exc_info.value)
+
+
+@mock.patch("requests.Session.post")
+def test_retries_then_success(mock_post):
+    """Client retries on transient 5xx then succeeds."""
+    threads = [
+        {
+            "isResolved": False,
+            "comments": {
+                "nodes": [
+                    {
+                        "id": "1",
+                        "author": {"login": "u"},
+                        "body": "ok",
+                        "createdAt": "2023-01-01T00:00:00Z",
+                        "updatedAt": "2023-01-01T00:00:00Z",
+                        "path": "f",
+                        "diffHunk": "",
+                        "position": 1,
+                        "url": "u",
+                        "line": 1,
+                    }
+                ]
+            },
+        }
+    ]
+    ok_json = mock_graphql_response(threads)
+    mock_post.side_effect = [
+        _resp(500, text="Server Error"),
+        _resp(502, text="Bad Gateway"),
+        _resp(200, ok_json),
+    ]
+
+    client = GitHubClient("t", max_retries=3, backoff_factor=0)
+    comments = client.get_pr_review_comments("owner", "repo", 1)
+    assert len(comments) == 1
+    assert mock_post.call_count == 3
+
+
+@mock.patch("requests.Session.post")
+def test_retries_exhaust_then_error(mock_post):
+    """Client raises after exhausting retries."""
+    mock_post.side_effect = [
+        _resp(500, text="Server Error"),
+        _resp(503, text="Service Unavailable"),
+        _resp(504, text="Gateway Timeout"),
+    ]
+
+    client = GitHubClient("t", max_retries=3, backoff_factor=0)
+    with pytest.raises(GitHubAPIError):
+        client.get_pr_review_comments("owner", "repo", 1)
 
 
 # --- Tests for find_pr_by_branch method ---
