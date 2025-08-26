@@ -72,7 +72,7 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
         remote_name = "origin"  # Fallback to origin
 
     try:
-        # Get the remote URL to determine owner/repo
+        # Get the remote URL to determine host/owner/repo
         result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded git command with controlled args
             ["git", "remote", "get-url", remote_name],
             capture_output=True,
@@ -81,30 +81,60 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
         )
         remote_url = result.stdout.strip()
 
-        # Handle both SSH and HTTPS URLs
+        
+        host = None
+        owner = None
+        repo = None
+        # Handle both SSH and HTTPS URLs for GitHub or GitHub Enterprise
         if remote_url.startswith("git@"):
-            # SSH format: git@github.com:owner/repo.git
-            match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+            m = re.match(r"git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+            if m:
+                host, owner, repo = m.groups()
         else:
-            # HTTPS format: https://github.com/owner/repo.git
-            match = re.match(
-                r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", remote_url
-            )
-
-        if not match:
+            m = re.match(r"https://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+            if m:
+                host, owner, repo = m.groups()
+        
+        if not host or 'github' not in host.lower():
             raise click.BadParameter(
                 f"Could not parse remote URL: {remote_url}. Expected GitHub repository."
             )
-
-        owner, repo = match.groups()
-
     except subprocess.CalledProcessError:
         raise click.BadParameter(
             f"No '{remote_name}' remote found or it is misconfigured. Please ensure your repository has a valid GitHub remote."
         )
 
-    # Use common resolver to find PR URL
-    return _resolve_pr_url(owner, repo, current_branch, "github.com", token)
+    # Try to find the PR for the current branch using GitHub API
+    if token:
+        try:
+            client = GitHubClient(token)
+            pr_number = client.find_pr_by_branch(owner, repo, current_branch)
+            if pr_number:
+                return f"https://{host}/{owner}/{repo}/pull/{pr_number}"
+        except GitHubAPIError:
+            # API call failed, continue to fallback methods
+            pass
+
+    # Try to find the PR for the current branch using GitHub CLI
+    try:
+        result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded gh command with controlled args
+            ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        pr_url = result.stdout.strip()
+        if pr_url:
+            return pr_url
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # GitHub CLI not available or no PR found
+        pass
+
+    # If we get here, we couldn't find a PR for the current branch
+    raise click.BadParameter(
+        f"No open pull request found for branch '{current_branch}' in {owner}/{repo}. "
+        "Please ensure there is an open PR for the current branch."
+    )
 
 
 def get_current_branch_pr_url(token: Optional[str] = None) -> str:
@@ -160,8 +190,9 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
 
 
 def parse_pr_url(url: str) -> Tuple[str, str, int]:
-    """Parse GitHub PR URL to extract owner, repo, and PR number."""
-    pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
+    """Parse GitHub/GHE PR URL to extract owner, repo, and PR number."""
+    # Accept hosts like github.com or enterprise hosts, allow optional query/fragment
+    pattern = r"https://[\w\.-]*github[\w\.-]*/([^/]+)/([^/]+)/pull/(\d+)(?:[?#].*)?$"
     match = re.match(pattern, url)
     if not match:
         raise click.BadParameter(

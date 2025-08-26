@@ -89,6 +89,14 @@ def test_parse_pr_url_valid():
             "https://github.com/owner-dash/repo_under/pull/456",
             ("owner-dash", "repo_under", 456),
         ),
+        (
+            "https://github.enterprise.com/org/repo/pull/42",
+            ("org", "repo", 42),
+        ),
+        (
+            "https://github.internal.local/org/repo/pull/7?foo=bar#frag",
+            ("org", "repo", 7),
+        ),
     ]
 
     for url, expected in test_cases:
