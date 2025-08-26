@@ -22,7 +22,7 @@ GITHUB_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo,read:org&
 
 def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
     """Get the PR URL for the current git branch.
-    
+
     Returns the PR URL for the current branch, or raises an exception with a helpful message.
     """
     try:
@@ -31,7 +31,7 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
             ["git", "rev-parse", "--git-dir"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
     except subprocess.CalledProcessError:
         raise click.BadParameter(
@@ -48,10 +48,10 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
             ["git", "branch", "--show-current"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         current_branch = result.stdout.strip()
-        
+
         if not current_branch:
             raise click.BadParameter(
                 "Could not determine current branch. Are you in a detached HEAD state?"
@@ -63,7 +63,9 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
     try:
         remote_name_result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded git command with controlled args
             ["git", "config", f"branch.{current_branch}.remote"],
-            capture_output=True, text=True, check=True
+            capture_output=True,
+            text=True,
+            check=True,
         )
         remote_name = remote_name_result.stdout.strip()
     except subprocess.CalledProcessError:
@@ -75,25 +77,27 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
             ["git", "remote", "get-url", remote_name],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         remote_url = result.stdout.strip()
-        
+
         # Handle both SSH and HTTPS URLs
         if remote_url.startswith("git@"):
             # SSH format: git@github.com:owner/repo.git
             match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
         else:
             # HTTPS format: https://github.com/owner/repo.git
-            match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
-        
+            match = re.match(
+                r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", remote_url
+            )
+
         if not match:
             raise click.BadParameter(
                 f"Could not parse remote URL: {remote_url}. Expected GitHub repository."
             )
-        
+
         owner, repo = match.groups()
-        
+
     except subprocess.CalledProcessError:
         raise click.BadParameter(
             f"No '{remote_name}' remote found or it is misconfigured. Please ensure your repository has a valid GitHub remote."
@@ -116,7 +120,7 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
             ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         pr_url = result.stdout.strip()
         if pr_url:
@@ -134,15 +138,15 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
 
 def get_current_branch_pr_url(token: Optional[str] = None) -> str:
     """Get the PR URL for the current git branch using hybrid approach.
-    
+
     Tries native git parsing first, falls back to subprocess calls if needed.
-    
+
     Args:
         token: Optional GitHub token for API calls
-        
+
     Returns:
         The PR URL for the current branch
-        
+
     Raises:
         click.BadParameter: If unable to determine PR URL
     """
@@ -156,13 +160,13 @@ def get_current_branch_pr_url(token: Optional[str] = None) -> str:
 
 def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
     """Get the PR URL using native git parsing (no subprocess calls).
-    
+
     Args:
         token: Optional GitHub token for API calls
-        
+
     Returns:
         The PR URL for the current branch
-        
+
     Raises:
         GitParsingError: If git parsing fails
         click.BadParameter: If unable to determine PR URL
@@ -170,14 +174,14 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
     try:
         # Initialize git repository parser
         repo = GitRepository()
-        
+
         # Get repository information
         repo_info = repo.get_repository_info()
         if repo_info is None:
             raise GitParsingError("Unable to extract repository information")
-        
+
         host, owner, repo_name, branch = repo_info
-        
+
         # Try to find PR using GitHub API if token provided
         if token:
             try:
@@ -188,14 +192,14 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
             except GitHubAPIError:
                 # API call failed, continue to fallback methods
                 pass
-        
+
         # Try to find PR using GitHub CLI
         try:
             result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded gh command with controlled args
                 ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             pr_url = result.stdout.strip()
             if pr_url:
@@ -203,13 +207,13 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
         except (subprocess.CalledProcessError, FileNotFoundError):
             # GitHub CLI not available or no PR found
             pass
-        
+
         # If we get here, we couldn't find a PR for the current branch
         raise click.BadParameter(
             f"No open pull request found for branch '{branch}' in {owner}/{repo_name}. "
             "Please ensure there is an open PR for the current branch."
         )
-        
+
     except GitParsingError as e:
         # Re-raise as GitParsingError so the hybrid function can catch it
         raise GitParsingError(f"Native git parsing failed: {e}") from e
@@ -232,8 +236,6 @@ def generate_filename(owner: str, repo: str, pr_number: int) -> str:
     """Generate default filename for PR review output."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return f"{owner}-{repo}-{timestamp}-pr{pr_number}.md"
-
-
 
 
 def _interactive_config_setup() -> None:
@@ -460,4 +462,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    main()  # pragma: no cover
