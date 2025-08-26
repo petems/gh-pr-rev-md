@@ -1,6 +1,5 @@
 """Tests for markdown formatting functionality."""
 
-
 from gh_pr_rev_md.formatter import format_comments_as_markdown, format_timestamp
 
 
