@@ -87,13 +87,13 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
         repo = None
         # Handle both SSH and HTTPS URLs for GitHub or GitHub Enterprise
         if remote_url.startswith("git@"):
-            m = re.match(r"git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
-            if m:
-                host, owner, repo = m.groups()
+            pattern = r"git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?$"
         else:
-            m = re.match(r"https://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
-            if m:
-                host, owner, repo = m.groups()
+            pattern = r"https://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?$"
+
+        match = re.match(pattern, remote_url)
+        if match:
+            host, owner, repo = match.groups()
         
         if not host or 'github' not in host.lower():
             raise click.BadParameter(
