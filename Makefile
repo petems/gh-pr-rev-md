@@ -14,6 +14,9 @@ help:
 	@echo "    lint          - Run ruff linting"
 	@echo "    lint-fix      - Run ruff with auto-fix"
 	@echo ""
+	@echo "  Testing:"
+	@echo "    test          - Run pytest with coverage"
+	@echo ""
 	@echo "  Documentation:"
 	@echo "    docs-generate - Generate complete documentation with API docs"
 	@echo "    docs          - Alias for docs-generate"
@@ -68,6 +71,11 @@ lint:
 
 lint-fix:
 	uv run ruff check . --fix
+
+# Run tests with coverage
+.PHONY: test
+test:
+	uv run pytest --cov=gh_pr_rev_md --cov-report=term-missing -q
 
 # Run the CLI via uv (no need to activate PATH)
 run:
