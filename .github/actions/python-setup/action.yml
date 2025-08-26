@@ -1,0 +1,45 @@
+name: "Python setup with uv"
+description: "Setup uv (with optional python-version) and install dependencies"
+
+inputs:
+  python-version:
+    description: "Python version to set via setup-uv (sets UV_PYTHON)"
+    required: false
+    default: ""
+  install-args:
+    description: "Arguments passed to 'uv pip install <install-args>'"
+    required: false
+    default: ".[dev]"
+  run-install:
+    description: "Whether to run dependency installation step"
+    required: false
+    default: "true"
+  cache-suffix:
+    description: "Optional cache key suffix for setup-uv cache"
+    required: false
+    default: ""
+  cache-dependency-glob:
+    description: "Optional glob(s) to control cache invalidation"
+    required: false
+    default: "**/uv.lock"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        enable-cache: true
+        cache-suffix: ${{ inputs.cache-suffix }}
+        cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
+
+    - name: Install dependencies
+      if: ${{ inputs.run-install == 'true' }}
+      shell: bash
+      run: |
+        
+        uv venv
+        uv pip install ${{ inputs.install-args }}
+
+

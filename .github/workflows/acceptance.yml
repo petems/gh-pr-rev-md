@@ -1,0 +1,28 @@
+name: Acceptance
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv and deps
+        uses: ./.github/actions/python-setup
+        with:
+          install-args: ".[dev]"
+
+      - name: Run acceptance tests (if present, parallel, randomized)
+        run: |
+          if [ -d tests/acceptance ] && ls tests/acceptance/test_*.py >/dev/null 2>&1; then
+            export PYTEST_ADDOPTS="--randomly-seed=${{ github.run_number }}${{ github.run_attempt }}"
+            uv run -q -m pytest -n auto tests/acceptance
+          else
+            echo "No acceptance tests found. Skipping."
+          fi
+
+

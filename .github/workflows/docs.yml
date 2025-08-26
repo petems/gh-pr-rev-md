@@ -1,0 +1,33 @@
+name: Docs
+
+on:
+  push:
+    paths:
+      - 'gh_pr_rev_md/**'
+      - 'docs/**'
+      - 'pyproject.toml'
+      - '.github/workflows/docs.yml'
+  pull_request:
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv and deps
+        uses: ./.github/actions/python-setup
+        with:
+          install-args: ".[dev]"
+
+      - name: Build Sphinx docs
+        run: |
+          uv run -m sphinx.ext.apidoc -o docs/api gh_pr_rev_md
+          uv run -m sphinx -b html docs docs/_build/html
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: docs/_build/html
