@@ -6,6 +6,7 @@ from click.testing import CliRunner
 from unittest import mock
 from pathlib import Path
 from datetime import datetime
+import yaml
 
 from gh_pr_rev_md import cli
 from gh_pr_rev_md import github_client
@@ -818,3 +819,197 @@ def test_get_current_branch_pr_url_api_fallback_to_gh_cli():
 
                 result = cli.get_current_branch_pr_url("fake-token")
                 assert result == "https://github.com/owner/repo/pull/999"
+
+
+def test_get_current_branch_pr_url_subprocess_branch_error(monkeypatch):
+    """Branch retrieval errors should raise a helpful Click exception."""
+
+    def run_side_effect(
+        cmd, capture_output=True, text=True, check=True
+    ):  # pragma: no cover - type annotated
+        if cmd[:3] == ["git", "rev-parse", "--git-dir"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=".git\n")
+        raise subprocess.CalledProcessError(1, cmd, "error")
+
+    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
+
+    with pytest.raises(cli.click.BadParameter, match="Failed to get current branch"):
+        cli.get_current_branch_pr_url_subprocess()
+
+
+def test_get_current_branch_pr_url_subprocess_no_pr(monkeypatch):
+    """When no PR is found, a helpful error is raised."""
+
+    responses = [
+        subprocess.CompletedProcess(["git"], 0, stdout=".git\n"),
+        subprocess.CompletedProcess(["git"], 0, stdout="feature\n"),
+        subprocess.CompletedProcess(["git"], 0, stdout="origin\n"),
+        subprocess.CompletedProcess(
+            ["git"], 0, stdout="https://github.com/owner/repo.git\n"
+        ),
+        subprocess.CalledProcessError(1, ["gh"], "no pr"),
+    ]
+
+    def run_side_effect(
+        cmd, capture_output=True, text=True, check=True
+    ):  # pragma: no cover - type annotated
+        result = responses.pop(0)
+        if isinstance(result, subprocess.CalledProcessError):
+            raise result
+        return result
+
+    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
+
+    with pytest.raises(cli.click.BadParameter, match="No open pull request found"):
+        cli.get_current_branch_pr_url_subprocess()
+
+
+def test_get_current_branch_pr_url_native_fallback(monkeypatch):
+    """Native parser falls back to subprocess and surfaces errors."""
+
+    mock_repo = mock.MagicMock()
+    mock_repo.get_repository_info.return_value = (
+        "github.com",
+        "owner",
+        "repo",
+        "main",
+    )
+    monkeypatch.setattr(cli, "GitRepository", lambda: mock_repo)
+
+    mock_client = mock.MagicMock()
+    mock_client.find_pr_by_branch.side_effect = github_client.GitHubAPIError("boom")
+    monkeypatch.setattr(cli, "GitHubClient", lambda token: mock_client)
+
+    def run_side_effect(
+        cmd, capture_output=True, text=True, check=True
+    ):  # pragma: no cover - type annotated
+        raise subprocess.CalledProcessError(1, cmd, "error")
+
+    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
+
+    with pytest.raises(cli.click.BadParameter, match="No open pull request found"):
+        cli.get_current_branch_pr_url_native("token")
+
+
+def test_get_current_branch_pr_url_native_gh_cli_success(monkeypatch):
+    """Native git parsing uses gh CLI when API fails."""
+
+    mock_repo = mock.MagicMock()
+    mock_repo.get_repository_info.return_value = (
+        "github.com",
+        "owner",
+        "repo",
+        "main",
+    )
+    monkeypatch.setattr(cli, "GitRepository", lambda: mock_repo)
+
+    mock_client = mock.MagicMock()
+    mock_client.find_pr_by_branch.side_effect = github_client.GitHubAPIError("boom")
+    monkeypatch.setattr(cli, "GitHubClient", lambda token: mock_client)
+
+    responses = [
+        subprocess.CompletedProcess(
+            ["gh"], 0, stdout="https://github.com/owner/repo/pull/5\n"
+        ),
+    ]
+
+    def run_side_effect(
+        cmd, capture_output=True, text=True, check=True
+    ):  # pragma: no cover - type annotated
+        return responses.pop(0)
+
+    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
+
+    result = cli.get_current_branch_pr_url_native("token")
+    assert result == "https://github.com/owner/repo/pull/5"
+
+
+def test_interactive_config_setup_new_config(tmp_path, monkeypatch):
+    """Interactive config setup handles browser errors and chmod failures."""
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    config_dir = tmp_path / "gh-pr-rev-md"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.yaml").write_bytes(b"\xff")
+
+    confirms = iter([True, True, True])
+    monkeypatch.setattr(cli.click, "confirm", lambda *a, **k: next(confirms))
+    monkeypatch.setattr(cli.click, "prompt", lambda *a, **k: "new_token")
+    monkeypatch.setattr(
+        cli.webbrowser,
+        "open",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("no browser")),
+    )
+    monkeypatch.setattr(
+        cli.os,
+        "chmod",
+        lambda *a, **k: (_ for _ in ()).throw(PermissionError("no chmod")),
+    )
+
+    cli._interactive_config_setup()
+    assert (config_dir / "config.yaml").exists()
+
+
+def test_interactive_config_setup_existing_token(tmp_path, monkeypatch):
+    """Existing config is loaded and token can be replaced."""
+
+    config_dir = tmp_path / "gh-pr-rev-md"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.yaml").write_text(yaml.safe_dump({"token": "old"}))
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    confirms = iter([False, False, False, False])
+    monkeypatch.setattr(cli.click, "confirm", lambda *a, **k: next(confirms))
+    monkeypatch.setattr(cli.click, "prompt", lambda *a, **k: "replacement")
+    monkeypatch.setattr(cli.webbrowser, "open", lambda *a, **k: None)
+    monkeypatch.setattr(cli.os, "chmod", lambda *a, **k: None)
+
+    cli._interactive_config_setup()
+
+    data = yaml.safe_load((config_dir / "config.yaml").read_text())
+    assert data["token"] == "replacement"
+
+
+def test_interactive_config_setup_open_success(tmp_path, monkeypatch):
+    """Browser launch path runs without errors."""
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    confirms = iter([True, True, True])
+    monkeypatch.setattr(cli.click, "confirm", lambda *a, **k: next(confirms))
+    monkeypatch.setattr(cli.click, "prompt", lambda *a, **k: "token")
+    monkeypatch.setattr(cli.webbrowser, "open", lambda *a, **k: None)
+    monkeypatch.setattr(cli.os, "chmod", lambda *a, **k: None)
+
+    cli._interactive_config_setup()
+    assert (tmp_path / "gh-pr-rev-md" / "config.yaml").exists()
+
+
+def test_main_config_set_success(runner, monkeypatch):
+    """--config-set exits cleanly on success."""
+
+    monkeypatch.setattr(cli, "_interactive_config_setup", lambda: None)
+    result = runner.invoke(cli.main, ["--config-set"])
+    assert result.exit_code == 0
+
+
+def test_main_config_set_error(runner, monkeypatch):
+    """Errors during config setup exit with status 1."""
+
+    def bad_setup():
+        raise yaml.YAMLError("bad")
+
+    monkeypatch.setattr(cli, "_interactive_config_setup", bad_setup)
+    result = runner.invoke(cli.main, ["--config-set"])
+    assert result.exit_code == 1
+    assert "Error during config setup" in result.output
+
+
+def test_main_missing_pr_url_shows_help(runner, monkeypatch):
+    """Running without PR URL shows help and exits cleanly (new behavior)."""
+
+    monkeypatch.setattr(cli, "load_config", lambda: {})
+    result = runner.invoke(cli.main, [])
+    assert result.exit_code == 0
+    assert "Usage: main [OPTIONS] [PR_URL]" in result.output
