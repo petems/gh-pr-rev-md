@@ -1,0 +1,12 @@
+---
+globs: gh_pr_rev_md/*.py
+description: Python implementation guardrails for CLI, API client, formatter
+---
+# Python Implementation Guidelines
+
+- CLI: Use Click for args/options. Parse PR URLs with the pattern `https://github\.com/([^/]+)/([^/]+)/pull/(\d+)`.
+- GitHub client: Use requests Session with headers; handle 404/403/!=200; paginate via `Link` header.
+- Formatter: Produce readable Markdown with repo/PR context, comment counts, timestamps, and diff hunks as fenced code blocks.
+- Prefer explicit exception types; avoid broad `except Exception` unless at the top CLI layer for user-friendly errors.
+- Respect `GITHUB_TOKEN` or `--token`. Allow unauthenticated mode with a clear rate limit warning.
+- Keep functions small, with clear names and types; avoid deep nesting.
