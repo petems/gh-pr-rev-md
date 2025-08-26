@@ -12,7 +12,7 @@ class TestGitRepository:
         """Test GitRepository initialization with a valid git repository."""
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        
+
         repo = GitRepository(str(tmp_path))
         assert repo.git_dir == git_dir
         assert repo.repo_path == tmp_path.resolve()
@@ -21,10 +21,10 @@ class TestGitRepository:
         """Test GitRepository finds .git directory in parent directories."""
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        
+
         nested_dir = tmp_path / "src" / "components"
         nested_dir.mkdir(parents=True)
-        
+
         repo = GitRepository(str(nested_dir))
         assert repo.git_dir == git_dir
 
@@ -32,17 +32,17 @@ class TestGitRepository:
         """Test GitRepository handles worktree .git files."""
         main_git_dir = tmp_path / "main_repo" / ".git"
         main_git_dir.mkdir(parents=True)
-        
+
         worktree_git_dir = main_git_dir / "worktrees" / "feature_branch"
         worktree_git_dir.mkdir(parents=True)
-        
+
         worktree_dir = tmp_path / "feature_worktree"
         worktree_dir.mkdir()
-        
+
         # Create .git file pointing to worktree gitdir
         git_file = worktree_dir / ".git"
         git_file.write_text(f"gitdir: {worktree_git_dir}")
-        
+
         repo = GitRepository(str(worktree_dir))
         assert repo.git_dir == worktree_git_dir
 
@@ -50,17 +50,17 @@ class TestGitRepository:
         """Test GitRepository handles relative gitdir paths in .git files."""
         main_git_dir = tmp_path / ".git"
         main_git_dir.mkdir()
-        
+
         worktree_git_dir = main_git_dir / "worktrees" / "feature"
         worktree_git_dir.mkdir(parents=True)
-        
+
         worktree_dir = tmp_path / "worktree"
         worktree_dir.mkdir()
-        
+
         # Create .git file with relative path
         git_file = worktree_dir / ".git"
         git_file.write_text("gitdir: ../.git/worktrees/feature")
-        
+
         repo = GitRepository(str(worktree_dir))
         assert repo.git_dir == worktree_git_dir
 
@@ -73,7 +73,7 @@ class TestGitRepository:
         """Test GitRepository handles invalid .git files gracefully."""
         git_file = tmp_path / ".git"
         git_file.write_text("invalid content")
-        
+
         with pytest.raises(GitParsingError, match="Not in a git repository"):
             GitRepository(str(tmp_path))
 
@@ -81,7 +81,7 @@ class TestGitRepository:
         """Test GitRepository handles unreadable .git files."""
         git_file = tmp_path / ".git"
         git_file.write_bytes(b"\xff\xfe\xfd")  # Invalid UTF-8 bytes
-        
+
         with pytest.raises(GitParsingError, match="Failed to read .git file"):
             GitRepository(str(tmp_path))
 
@@ -100,7 +100,7 @@ class TestGetCurrentBranch:
         repo = self.create_git_repo(tmp_path)
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("ref: refs/heads/main")
-        
+
         branch = repo.get_current_branch()
         assert branch == "main"
 
@@ -109,7 +109,7 @@ class TestGetCurrentBranch:
         repo = self.create_git_repo(tmp_path)
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("ref: refs/heads/feature/user-auth")
-        
+
         branch = repo.get_current_branch()
         assert branch == "feature/user-auth"
 
@@ -118,7 +118,7 @@ class TestGetCurrentBranch:
         repo = self.create_git_repo(tmp_path)
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("a1b2c3d4e5f6789012345678901234567890abcd")
-        
+
         branch = repo.get_current_branch()
         assert branch is None
 
@@ -127,7 +127,7 @@ class TestGetCurrentBranch:
         repo = self.create_git_repo(tmp_path)
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("ref: refs/tags/v1.0.0")
-        
+
         branch = repo.get_current_branch()
         assert branch == "v1.0.0"
 
@@ -136,14 +136,14 @@ class TestGetCurrentBranch:
         repo = self.create_git_repo(tmp_path)
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("ref: refs/remotes/origin/main")
-        
+
         branch = repo.get_current_branch()
         assert branch == "main"
 
     def test_get_current_branch_missing_head_file(self, tmp_path):
         """Test error handling when HEAD file is missing."""
         repo = self.create_git_repo(tmp_path)
-        
+
         with pytest.raises(GitParsingError, match="Failed to read HEAD file"):
             repo.get_current_branch()
 
@@ -152,7 +152,7 @@ class TestGetCurrentBranch:
         repo = self.create_git_repo(tmp_path)
         head_file = repo.git_dir / "HEAD"
         head_file.write_bytes(b"\xff\xfe\xfd")  # Invalid UTF-8 bytes
-        
+
         with pytest.raises(GitParsingError, match="Failed to read HEAD file"):
             repo.get_current_branch()
 
@@ -176,7 +176,7 @@ class TestGetRemoteUrl:
     fetch = +refs/heads/*:refs/remotes/origin/*
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         url = repo.get_remote_url()
         assert url == "https://github.com/owner/repo.git"
 
@@ -192,9 +192,21 @@ class TestGetRemoteUrl:
     fetch = +refs/heads/*:refs/remotes/origin/*
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         url = repo.get_remote_url("upstream")
         assert url == "https://github.com/upstream/repo.git"
+
+    def test_get_remote_url_nonexistent_uses_origin(self, tmp_path):
+        """Nonexistent remote falls back to origin URL."""
+        config_content = """
+[remote "origin"]
+    url = https://github.com/owner/repo.git
+    fetch = +refs/heads/*:refs/remotes/origin/*
+"""
+        repo = self.create_git_repo_with_config(tmp_path, config_content)
+
+        url = repo.get_remote_url("nonexistent")
+        assert url == "https://github.com/owner/repo.git"
 
     def test_get_remote_url_branch_tracking(self, tmp_path):
         """Test getting remote URL based on current branch's tracking remote."""
@@ -212,11 +224,11 @@ class TestGetRemoteUrl:
     fetch = +refs/heads/*:refs/remotes/origin/*
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         # Mock current branch
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("ref: refs/heads/feature")
-        
+
         url = repo.get_remote_url()
         assert url == "https://github.com/upstream/repo.git"
 
@@ -235,11 +247,11 @@ class TestGetRemoteUrl:
     fetch = +refs/heads/*:refs/remotes/origin/*
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         # Mock current branch
         head_file = repo.git_dir / "HEAD"
         head_file.write_text("ref: refs/heads/feature")
-        
+
         url = repo.get_remote_url()
         assert url == "https://github.com/origin/repo.git"
 
@@ -251,7 +263,7 @@ class TestGetRemoteUrl:
     fetch = +refs/heads/*:refs/remotes/upstream/*
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         url = repo.get_remote_url()
         assert url == "https://github.com/upstream/repo.git"
 
@@ -263,7 +275,7 @@ class TestGetRemoteUrl:
     fetch = +refs/heads/*:refs/remotes/origin/*
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         url = repo.get_remote_url()
         assert url == "git@github.com:owner/repo.git"
 
@@ -272,7 +284,7 @@ class TestGetRemoteUrl:
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
         repo = GitRepository(str(tmp_path))
-        
+
         url = repo.get_remote_url()
         assert url is None
 
@@ -284,7 +296,7 @@ class TestGetRemoteUrl:
     filemode = true
 """
         repo = self.create_git_repo_with_config(tmp_path, config_content)
-        
+
         url = repo.get_remote_url()
         assert url is None
 
@@ -294,9 +306,9 @@ class TestGetRemoteUrl:
         git_dir.mkdir()
         config_file = git_dir / "config"
         config_file.write_text("invalid config content [[[")
-        
+
         repo = GitRepository(str(tmp_path))
-        
+
         with pytest.raises(GitParsingError, match="Failed to parse git config"):
             repo.get_remote_url()
 
@@ -306,9 +318,9 @@ class TestGetRemoteUrl:
         git_dir.mkdir()
         config_file = git_dir / "config"
         config_file.write_bytes(b"\xff\xfe\xfd")  # Invalid UTF-8 bytes
-        
+
         repo = GitRepository(str(tmp_path))
-        
+
         with pytest.raises(GitParsingError, match="Failed to read git config"):
             repo.get_remote_url()
 
@@ -325,9 +337,9 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_https_github(self, tmp_path):
         """Test parsing HTTPS GitHub URL."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("https://github.com/owner/repo.git")
-        
+
         assert remote_info is not None
         assert remote_info.host == "github.com"
         assert remote_info.owner == "owner"
@@ -338,9 +350,9 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_https_github_no_git_suffix(self, tmp_path):
         """Test parsing HTTPS GitHub URL without .git suffix."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("https://github.com/owner/repo")
-        
+
         assert remote_info is not None
         assert remote_info.host == "github.com"
         assert remote_info.owner == "owner"
@@ -349,9 +361,9 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_ssh_github(self, tmp_path):
         """Test parsing SSH GitHub URL."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("git@github.com:owner/repo.git")
-        
+
         assert remote_info is not None
         assert remote_info.host == "github.com"
         assert remote_info.owner == "owner"
@@ -362,9 +374,9 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_ssh_github_no_git_suffix(self, tmp_path):
         """Test parsing SSH GitHub URL without .git suffix."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("git@github.com:owner/repo")
-        
+
         assert remote_info is not None
         assert remote_info.host == "github.com"
         assert remote_info.owner == "owner"
@@ -373,9 +385,11 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_github_enterprise(self, tmp_path):
         """Test parsing GitHub Enterprise URL."""
         repo = self.create_git_repo(tmp_path)
-        
-        remote_info = repo.parse_remote_url("https://github.enterprise.com/owner/repo.git")
-        
+
+        remote_info = repo.parse_remote_url(
+            "https://github.enterprise.com/owner/repo.git"
+        )
+
         assert remote_info is not None
         assert remote_info.host == "github.enterprise.com"
         assert remote_info.owner == "owner"
@@ -385,9 +399,9 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_ssh_github_enterprise(self, tmp_path):
         """Test parsing SSH GitHub Enterprise URL."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("git@github.enterprise.com:owner/repo.git")
-        
+
         assert remote_info is not None
         assert remote_info.host == "github.enterprise.com"
         assert remote_info.owner == "owner"
@@ -397,9 +411,9 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_non_github(self, tmp_path):
         """Test parsing non-GitHub URL."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("https://gitlab.com/owner/repo.git")
-        
+
         assert remote_info is not None
         assert remote_info.host == "gitlab.com"
         assert remote_info.owner == "owner"
@@ -409,34 +423,34 @@ class TestParseRemoteUrl:
     def test_parse_remote_url_invalid_format(self, tmp_path):
         """Test parsing invalid URL format."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("invalid-url")
         assert remote_info is None
 
     def test_parse_remote_url_empty_string(self, tmp_path):
         """Test parsing empty URL."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url("")
         assert remote_info is None
 
     def test_parse_remote_url_none(self, tmp_path):
         """Test parsing None URL."""
         repo = self.create_git_repo(tmp_path)
-        
+
         remote_info = repo.parse_remote_url(None)
         assert remote_info is None
 
     def test_parse_remote_url_complex_repo_names(self, tmp_path):
         """Test parsing URLs with complex repository names."""
         repo = self.create_git_repo(tmp_path)
-        
+
         test_cases = [
             ("https://github.com/owner-name/repo-name.git", "owner-name", "repo-name"),
             ("https://github.com/owner_name/repo_name.git", "owner_name", "repo_name"),
             ("git@github.com:org.name/repo.name.git", "org.name", "repo.name"),
         ]
-        
+
         for url, expected_owner, expected_repo in test_cases:
             remote_info = repo.parse_remote_url(url)
             assert remote_info is not None
@@ -447,15 +461,17 @@ class TestParseRemoteUrl:
 class TestGetRepositoryInfo:
     """Test cases for get_repository_info method."""
 
-    def create_complete_git_repo(self, tmp_path, branch="main", remote_url="https://github.com/owner/repo.git"):
+    def create_complete_git_repo(
+        self, tmp_path, branch="main", remote_url="https://github.com/owner/repo.git"
+    ):
         """Helper to create a complete git repo with branch and remote."""
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        
+
         # Create HEAD file
         head_file = git_dir / "HEAD"
         head_file.write_text(f"ref: refs/heads/{branch}")
-        
+
         # Create config file
         config_content = f"""
 [remote "origin"]
@@ -464,15 +480,15 @@ class TestGetRepositoryInfo:
 """
         config_file = git_dir / "config"
         config_file.write_text(config_content)
-        
+
         return GitRepository(str(tmp_path))
 
     def test_get_repository_info_complete(self, tmp_path):
         """Test getting complete repository information."""
         repo = self.create_complete_git_repo(tmp_path)
-        
+
         info = repo.get_repository_info()
-        
+
         assert info is not None
         host, owner, repo_name, branch = info
         assert host == "github.com"
@@ -483,13 +499,13 @@ class TestGetRepositoryInfo:
     def test_get_repository_info_github_enterprise(self, tmp_path):
         """Test getting repository info for GitHub Enterprise."""
         repo = self.create_complete_git_repo(
-            tmp_path, 
+            tmp_path,
             branch="feature/auth",
-            remote_url="https://github.enterprise.com/company/project.git"
+            remote_url="https://github.enterprise.com/company/project.git",
         )
-        
+
         info = repo.get_repository_info()
-        
+
         assert info is not None
         host, owner, repo_name, branch = info
         assert host == "github.enterprise.com"
@@ -500,12 +516,11 @@ class TestGetRepositoryInfo:
     def test_get_repository_info_ssh_url(self, tmp_path):
         """Test getting repository info with SSH URL."""
         repo = self.create_complete_git_repo(
-            tmp_path,
-            remote_url="git@github.com:owner/repo.git"
+            tmp_path, remote_url="git@github.com:owner/repo.git"
         )
-        
+
         info = repo.get_repository_info()
-        
+
         assert info is not None
         host, owner, repo_name, branch = info
         assert host == "github.com"
@@ -517,11 +532,11 @@ class TestGetRepositoryInfo:
         """Test getting repository info in detached HEAD state."""
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        
+
         # Create HEAD file with commit hash
         head_file = git_dir / "HEAD"
         head_file.write_text("a1b2c3d4e5f6789012345678901234567890abcd")
-        
+
         # Create config file
         config_content = """
 [remote "origin"]
@@ -530,9 +545,23 @@ class TestGetRepositoryInfo:
 """
         config_file = git_dir / "config"
         config_file.write_text(config_content)
-        
+
         repo = GitRepository(str(tmp_path))
-        
+
+        info = repo.get_repository_info()
+        assert info is None
+
+    def test_get_repository_info_handles_gitparsing_error(self, tmp_path, monkeypatch):
+        """Errors in subcalls should be caught and return None."""
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        repo = GitRepository(str(tmp_path))
+
+        def fail(*args, **kwargs):
+            raise GitParsingError("boom")
+
+        monkeypatch.setattr(repo, "get_current_branch", fail)
+
         info = repo.get_repository_info()
         assert info is None
 
@@ -540,11 +569,11 @@ class TestGetRepositoryInfo:
         """Test getting repository info when no remote is configured."""
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        
+
         # Create HEAD file
         head_file = git_dir / "HEAD"
         head_file.write_text("ref: refs/heads/main")
-        
+
         # Create config file without remotes
         config_content = """
 [core]
@@ -552,29 +581,25 @@ class TestGetRepositoryInfo:
 """
         config_file = git_dir / "config"
         config_file.write_text(config_content)
-        
+
         repo = GitRepository(str(tmp_path))
-        
+
         info = repo.get_repository_info()
         assert info is None
 
     def test_get_repository_info_non_github_remote(self, tmp_path):
         """Test getting repository info for non-GitHub remote."""
         repo = self.create_complete_git_repo(
-            tmp_path,
-            remote_url="https://gitlab.com/owner/repo.git"
+            tmp_path, remote_url="https://gitlab.com/owner/repo.git"
         )
-        
+
         info = repo.get_repository_info()
         assert info is None
 
     def test_get_repository_info_invalid_remote_url(self, tmp_path):
         """Test getting repository info with invalid remote URL."""
-        repo = self.create_complete_git_repo(
-            tmp_path,
-            remote_url="invalid-url"
-        )
-        
+        repo = self.create_complete_git_repo(tmp_path, remote_url="invalid-url")
+
         info = repo.get_repository_info()
         assert info is None
 
@@ -582,13 +607,13 @@ class TestGetRepositoryInfo:
         """Test getting repository info when parsing fails."""
         git_dir = tmp_path / ".git"
         git_dir.mkdir()
-        
+
         # Create invalid HEAD file
         head_file = git_dir / "HEAD"
         head_file.write_bytes(b"\x00\x01\x02")  # Invalid UTF-8
-        
+
         repo = GitRepository(str(tmp_path))
-        
+
         info = repo.get_repository_info()
         assert info is None
 
@@ -600,9 +625,9 @@ class TestRemoteInfo:
         """Test GitHub detection in RemoteInfo."""
         github_remote = RemoteInfo(
             host="github.com",
-            owner="owner", 
+            owner="owner",
             repo="repo",
-            url="https://github.com/owner/repo.git"
+            url="https://github.com/owner/repo.git",
         )
         assert github_remote.is_github is True
 
@@ -611,8 +636,8 @@ class TestRemoteInfo:
         ghe_remote = RemoteInfo(
             host="github.enterprise.com",
             owner="owner",
-            repo="repo", 
-            url="https://github.enterprise.com/owner/repo.git"
+            repo="repo",
+            url="https://github.enterprise.com/owner/repo.git",
         )
         assert ghe_remote.is_github is True
 
@@ -622,6 +647,6 @@ class TestRemoteInfo:
             host="gitlab.com",
             owner="owner",
             repo="repo",
-            url="https://gitlab.com/owner/repo.git"
+            url="https://gitlab.com/owner/repo.git",
         )
         assert gitlab_remote.is_github is False

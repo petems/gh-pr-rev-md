@@ -1,0 +1,2356 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/docs/conf.py b/docs/conf.py
+index 1ac43f42a04a45efc305ba694827d3e230d1978b..c997a540be516c89259bf6151c4f365cc9366128 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -1,32 +1,32 @@
+ # Configuration file for the Sphinx documentation builder.
+ 
+ import os
+ import sys
+ from datetime import datetime
+ 
+ # Add project root to sys.path if needed
+-sys.path.insert(0, os.path.abspath('..'))
++sys.path.insert(0, os.path.abspath(".."))
+ 
+-project = 'gh-pr-rev-md'
+-author = 'Peter Souter'
++project = "gh-pr-rev-md"
++author = "Peter Souter"
+ current_year = datetime.now().year
+-copyright = f'{current_year}, {author}'
++copyright = f"{current_year}, {author}"
+ 
+ extensions = [
+-    'sphinx.ext.autodoc',
+-    'sphinx.ext.napoleon',
+-    'sphinx.ext.viewcode',
++    "sphinx.ext.autodoc",
++    "sphinx.ext.napoleon",
++    "sphinx.ext.viewcode",
+ ]
+ 
+-templates_path = ['_templates']
++templates_path = ["_templates"]
+ exclude_patterns = []
+ 
+-html_theme = 'sphinx_rtd_theme'
+-html_static_path = ['_static']
++html_theme = "sphinx_rtd_theme"
++html_static_path = ["_static"]
+ 
+ # Autodoc options
+ autodoc_default_options = {
+-    'members': True,
+-    'undoc-members': True,
+-    'show-inheritance': True,
++    "members": True,
++    "undoc-members": True,
++    "show-inheritance": True,
+ }
+diff --git a/gh_pr_rev_md/cli.py b/gh_pr_rev_md/cli.py
+index 897b88664302c72b1f6b9609eab0548c83190490..d9f812fe62fe0da7baca59a877cc6757a30e4e46 100644
+--- a/gh_pr_rev_md/cli.py
++++ b/gh_pr_rev_md/cli.py
+@@ -1,263 +1,265 @@
+ """CLI interface for GitHub PR review comments tool."""
+ 
+ import os
+ import re
+ import sys
+ import webbrowser
+ import subprocess  # nosec B404  # Required for git/gh CLI integration
+ from datetime import datetime
+ from pathlib import Path
+ from typing import Optional, Tuple
+ 
+ import click
+ import yaml
+ 
+ from .config import load_config
+ from .formatter import format_comments_as_markdown
+ from .git_utils import GitParsingError, GitRepository
+ from .github_client import GitHubAPIError, GitHubClient
+ 
+ GITHUB_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo,read:org&description=gh-pr-rev-md%20CLI%20(read%20PR%20comments)"  # nosec B105  # URL for token creation, not a password
+ 
+ 
+ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
+     """Get the PR URL for the current git branch.
+-    
++
+     Returns the PR URL for the current branch, or raises an exception with a helpful message.
+     """
+     try:
+         # Check if we're in a git repository
+         result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded git command with controlled args
+             ["git", "rev-parse", "--git-dir"],
+             capture_output=True,
+             text=True,
+-            check=True
++            check=True,
+         )
+     except subprocess.CalledProcessError:
+         raise click.BadParameter(
+             "Not in a git repository. Please run this command from within a git repository."
+         )
+     except FileNotFoundError:
+         raise click.BadParameter(
+             "Git is not installed or not available in PATH. Please install git and try again."
+         )
+ 
+     try:
+         # Get the current branch name
+         result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded git command with controlled args
+             ["git", "branch", "--show-current"],
+             capture_output=True,
+             text=True,
+-            check=True
++            check=True,
+         )
+         current_branch = result.stdout.strip()
+-        
++
+         if not current_branch:
+             raise click.BadParameter(
+                 "Could not determine current branch. Are you in a detached HEAD state?"
+             )
+     except subprocess.CalledProcessError as e:
+         raise click.BadParameter(f"Failed to get current branch: {e}")
+ 
+     # Determine the remote name to use
+     try:
+         remote_name_result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded git command with controlled args
+             ["git", "config", f"branch.{current_branch}.remote"],
+-            capture_output=True, text=True, check=True
++            capture_output=True,
++            text=True,
++            check=True,
+         )
+         remote_name = remote_name_result.stdout.strip()
+     except subprocess.CalledProcessError:
+         remote_name = "origin"  # Fallback to origin
+ 
+     try:
+         # Get the remote URL to determine owner/repo
+         result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded git command with controlled args
+             ["git", "remote", "get-url", remote_name],
+             capture_output=True,
+             text=True,
+-            check=True
++            check=True,
+         )
+         remote_url = result.stdout.strip()
+-        
++
+         # Handle both SSH and HTTPS URLs
+         if remote_url.startswith("git@"):
+             # SSH format: git@github.com:owner/repo.git
+             match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+         else:
+             # HTTPS format: https://github.com/owner/repo.git
+-            match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+-        
++            match = re.match(
++                r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", remote_url
++            )
++
+         if not match:
+             raise click.BadParameter(
+                 f"Could not parse remote URL: {remote_url}. Expected GitHub repository."
+             )
+-        
++
+         owner, repo = match.groups()
+-        
++
+     except subprocess.CalledProcessError:
+         raise click.BadParameter(
+             f"No '{remote_name}' remote found or it is misconfigured. Please ensure your repository has a valid GitHub remote."
+         )
+ 
+     # Try to find the PR for the current branch using GitHub API
+     if token:
+         try:
+             client = GitHubClient(token)
+             pr_number = client.find_pr_by_branch(owner, repo, current_branch)
+             if pr_number:
+                 return f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+         except GitHubAPIError:
+             # API call failed, continue to fallback methods
+             pass
+ 
+     # Try to find the PR for the current branch using GitHub CLI
+     try:
+         result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded gh command with controlled args
+             ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+             capture_output=True,
+             text=True,
+-            check=True
++            check=True,
+         )
+         pr_url = result.stdout.strip()
+         if pr_url:
+             return pr_url
+     except (subprocess.CalledProcessError, FileNotFoundError):
+         # GitHub CLI not available or no PR found
+         pass
+ 
+     # If we get here, we couldn't find a PR for the current branch
+     raise click.BadParameter(
+         f"No open pull request found for branch '{current_branch}' in {owner}/{repo}. "
+         "Please ensure there is an open PR for the current branch."
+     )
+ 
+ 
+ def get_current_branch_pr_url(token: Optional[str] = None) -> str:
+     """Get the PR URL for the current git branch using hybrid approach.
+-    
++
+     Tries native git parsing first, falls back to subprocess calls if needed.
+-    
++
+     Args:
+         token: Optional GitHub token for API calls
+-        
++
+     Returns:
+         The PR URL for the current branch
+-        
++
+     Raises:
+         click.BadParameter: If unable to determine PR URL
+     """
+     try:
+         # Try native git parsing first (fast path)
+         return get_current_branch_pr_url_native(token)
+     except GitParsingError:
+         # Fall back to subprocess approach (compatibility path)
+         return get_current_branch_pr_url_subprocess(token)
+ 
+ 
+ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
+     """Get the PR URL using native git parsing (no subprocess calls).
+-    
++
+     Args:
+         token: Optional GitHub token for API calls
+-        
++
+     Returns:
+         The PR URL for the current branch
+-        
++
+     Raises:
+         GitParsingError: If git parsing fails
+         click.BadParameter: If unable to determine PR URL
+     """
+     try:
+         # Initialize git repository parser
+         repo = GitRepository()
+-        
++
+         # Get repository information
+         repo_info = repo.get_repository_info()
+         if repo_info is None:
+             raise GitParsingError("Unable to extract repository information")
+-        
++
+         host, owner, repo_name, branch = repo_info
+-        
++
+         # Try to find PR using GitHub API if token provided
+         if token:
+             try:
+                 client = GitHubClient(token)
+                 pr_number = client.find_pr_by_branch(owner, repo_name, branch)
+                 if pr_number:
+                     return f"https://{host}/{owner}/{repo_name}/pull/{pr_number}"
+             except GitHubAPIError:
+                 # API call failed, continue to fallback methods
+                 pass
+-        
++
+         # Try to find PR using GitHub CLI
+         try:
+             result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded gh command with controlled args
+                 ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+                 capture_output=True,
+                 text=True,
+-                check=True
++                check=True,
+             )
+             pr_url = result.stdout.strip()
+             if pr_url:
+                 return pr_url
+         except (subprocess.CalledProcessError, FileNotFoundError):
+             # GitHub CLI not available or no PR found
+             pass
+-        
++
+         # If we get here, we couldn't find a PR for the current branch
+         raise click.BadParameter(
+             f"No open pull request found for branch '{branch}' in {owner}/{repo_name}. "
+             "Please ensure there is an open PR for the current branch."
+         )
+-        
++
+     except GitParsingError as e:
+         # Re-raise as GitParsingError so the hybrid function can catch it
+         raise GitParsingError(f"Native git parsing failed: {e}") from e
+ 
+ 
+ def parse_pr_url(url: str) -> Tuple[str, str, int]:
+     """Parse GitHub PR URL to extract owner, repo, and PR number."""
+     pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
+     match = re.match(pattern, url)
+     if not match:
+         raise click.BadParameter(
+             "Invalid GitHub PR URL format. Expected: https://github.com/owner/repo/pull/123"
+         )
+ 
+     owner, repo, pr_number = match.groups()
+     return owner, repo, int(pr_number)
+ 
+ 
+ def generate_filename(owner: str, repo: str, pr_number: int) -> str:
+     """Generate default filename for PR review output."""
+     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+     return f"{owner}-{repo}-{timestamp}-pr{pr_number}.md"
+ 
+ 
+-
+-
+ def _interactive_config_setup() -> None:
+     """Interactively create or update the XDG config file."""
+     xdg_home = os.environ.get("XDG_CONFIG_HOME")
+     base_dir = Path(xdg_home).expanduser() if xdg_home else (Path.home() / ".config")
+     app_dir = base_dir / "gh-pr-rev-md"
+     config_path = app_dir / "config.yaml"
+ 
+     existing: dict = {}
+     if config_path.exists():
+         try:
+             existing = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+         except (yaml.YAMLError, OSError, UnicodeDecodeError):
+             existing = {}
+ 
+     click.echo(f"Config path: {config_path}")
+ 
+     # Offer to open PAT creation page with recommended scopes for read-only repo access
+     if click.confirm("Open GitHub token creation page in your browser?", default=True):
+         try:
+             webbrowser.open(GITHUB_TOKEN_URL, new=2)
+             click.echo(
+                 "Opened browser. After creating the token, copy it and return here."
+             )
+         except OSError as exc:
+             click.echo(f"Warning: failed to open browser automatically: {exc}")
+@@ -438,26 +440,26 @@ def main(
+         if output_file or output:
+             filename = (
+                 output_file
+                 if output_file
+                 else generate_filename(owner, repo, pr_number)
+             )
+             file_path = Path(filename)
+ 
+             try:
+                 file_path.write_text(markdown_output, encoding="utf-8")
+                 click.echo(f"Output saved to: {file_path.absolute()}")
+             except (OSError, PermissionError) as e:
+                 click.echo(f"Error writing to file {filename}: {e}", err=True)
+                 sys.exit(1)
+         else:
+             click.echo(markdown_output)
+     except GitHubAPIError as e:
+         click.echo(f"Error fetching data from GitHub: {e}", err=True)
+         sys.exit(1)
+     except Exception as e:
+         click.echo(f"An unexpected error occurred: {e}", err=True)
+         sys.exit(1)
+ 
+ 
+ if __name__ == "__main__":
+-    main()
++    main()  # pragma: no cover
+diff --git a/gh_pr_rev_md/git_utils.py b/gh_pr_rev_md/git_utils.py
+index cb6e458212e7b1603a637032efbf8e762751f1cf..078cce576cfda64cedef3718badba575925151e1 100644
+--- a/gh_pr_rev_md/git_utils.py
++++ b/gh_pr_rev_md/git_utils.py
+@@ -1,262 +1,276 @@
+ """Native Git repository introspection utilities."""
+ 
+ import os
+ import re
+ from configparser import ConfigParser
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Optional, Tuple
+ 
+ 
+ class GitParsingError(Exception):
+     """Exception raised when git repository parsing fails."""
++
+     pass
+ 
+ 
+ @dataclass
+ class RemoteInfo:
+     """Information about a git remote URL."""
++
+     host: str
+     owner: str
+     repo: str
+     url: str
+-    
++
+     @property
+     def is_github(self) -> bool:
+         """Check if this is a GitHub or GitHub Enterprise remote."""
+-        return 'github' in self.host.lower()
++        return "github" in self.host.lower()
+ 
+ 
+ class GitRepository:
+     """Native git repository introspection without subprocess calls."""
+-    
++
+     def __init__(self, path: str = "."):
+         """Initialize git repository from given path.
+-        
++
+         Args:
+             path: Starting path to search for git repository
+-            
++
+         Raises:
+             GitParsingError: If no git repository found or invalid repository
+         """
+         self.repo_path = Path(path).resolve()
+         self.git_dir = self._find_git_dir()
+-        
++
+     def _find_git_dir(self) -> Path:
+         """Find the .git directory by walking up the directory tree.
+-        
++
+         Returns:
+             Path to the git directory
+-            
++
+         Raises:
+             GitParsingError: If no git repository found
+         """
+         current_path = self.repo_path
+-        
++
+         while current_path != current_path.parent:
+             git_path = current_path / ".git"
+-            
++
+             if git_path.is_dir():
+                 return git_path
+             elif git_path.is_file():
+                 # Handle worktrees: .git file contains "gitdir: /path/to/gitdir"
+                 try:
+-                    content = git_path.read_text(encoding="utf-8", errors="strict").strip()
++                    content = git_path.read_text(
++                        encoding="utf-8", errors="strict"
++                    ).strip()
+                     if content.startswith("gitdir: "):
+                         gitdir_path = content[8:]  # Remove "gitdir: " prefix
+                         if not os.path.isabs(gitdir_path):
+                             gitdir_path = current_path / gitdir_path
+                         gitdir_path = Path(gitdir_path).resolve()
+                         if gitdir_path.is_dir():
+                             return gitdir_path
+                 except (OSError, UnicodeDecodeError) as e:
+                     raise GitParsingError(f"Failed to read .git file: {e}") from e
+                 # If .git file exists but doesn't contain valid gitdir, continue searching
+                 # This handles cases where .git file is malformed but we can still find
+                 # a .git directory in parent directories
+-            
++
+             current_path = current_path.parent
+-        
++
+         raise GitParsingError("Not in a git repository")
+-    
++
+     def get_current_branch(self) -> Optional[str]:
+         """Get the current branch name.
+-        
++
+         Returns:
+             Branch name if on a branch, None if in detached HEAD state
+-            
++
+         Raises:
+             GitParsingError: If HEAD file cannot be read or parsed
+         """
+         head_file = self.git_dir / "HEAD"
+-        
++
+         try:
+-            head_content = head_file.read_text(encoding="utf-8", errors="strict").strip()
++            head_content = head_file.read_text(
++                encoding="utf-8", errors="strict"
++            ).strip()
+         except (OSError, UnicodeDecodeError) as e:
+             raise GitParsingError(f"Failed to read HEAD file: {e}") from e
+-        
++
+         if head_content.startswith("ref: "):
+             # Symbolic ref: "ref: refs/heads/branch-name"
+             ref_path = head_content[5:]  # Remove "ref: " prefix
+             if ref_path.startswith("refs/heads/"):
+                 return ref_path[11:]  # Remove "refs/heads/" prefix
+             else:
+                 # Handle other ref types (tags, remotes, etc.)
+                 return ref_path.split("/")[-1]
+         else:
+             # Detached HEAD: direct commit hash
+             return None
+-    
++
+     def get_remote_url(self, remote_name: Optional[str] = None) -> Optional[str]:
+         """Get remote URL for the specified remote or current branch's remote.
+-        
++
+         Args:
+             remote_name: Specific remote to get URL for. If None, tries to find
+                         the appropriate remote for current branch.
+-        
++
+         Returns:
+             Remote URL if found, None otherwise
+-            
++
+         Raises:
+             GitParsingError: If config file cannot be read
+         """
+         config_file = self.git_dir / "config"
+-        
++
+         if not config_file.exists():
+             return None
+-            
++
+         try:
+             config_content = config_file.read_text(encoding="utf-8", errors="strict")
+         except (OSError, UnicodeDecodeError) as e:
+             raise GitParsingError(f"Failed to read git config: {e}") from e
+-        
++
+         config = self._parse_git_config(config_content)
+-        
++
+         # If no specific remote requested, try to find the best one
+         if remote_name is None:
+             try:
+                 current_branch = self.get_current_branch()
+                 if current_branch:
+                     # Check if current branch has a configured remote
+                     branch_section = f"branch {current_branch}"
+-                    if config.has_section(branch_section) and config.has_option(branch_section, "remote"):
++                    if config.has_section(branch_section) and config.has_option(
++                        branch_section, "remote"
++                    ):
+                         remote_name = config.get(branch_section, "remote")
+             except GitParsingError:
+                 # If we can't read current branch, that's okay - we'll fall back to default remotes
+                 pass
+-            
++
+             # Fall back to 'origin' if no branch-specific remote
+             if remote_name is None:
+                 remote_name = "origin"
+-        
++
+         # Get URL for the remote
+         remote_section = f"remote {remote_name}"
+-        if config.has_section(remote_section) and config.has_option(remote_section, "url"):
++        if config.has_section(remote_section) and config.has_option(
++            remote_section, "url"
++        ):
+             return config.get(remote_section, "url")
+-        
++
+         # If specified remote not found and it wasn't 'origin', try 'origin'
+         if remote_name != "origin":
+             origin_section = "remote origin"
+-            if config.has_section(origin_section) and config.has_option(origin_section, "url"):
++            if config.has_section(origin_section) and config.has_option(
++                origin_section, "url"
++            ):
+                 return config.get(origin_section, "url")
+-        
++
+         # Last resort: return first remote found
+         for section_name in config.sections():
+-            if section_name.startswith("remote ") and config.has_option(section_name, "url"):
++            if section_name.startswith("remote ") and config.has_option(
++                section_name, "url"
++            ):
+                 return config.get(section_name, "url")
+-        
++
+         return None
+-    
++
+     def _parse_git_config(self, config_content: str) -> ConfigParser:
+         """Parse git config content, handling git-specific section format.
+-        
++
+         Git uses section format like [remote "origin"] which needs to be
+         converted to ConfigParser format [remote origin].
+-        
++
+         Args:
+             config_content: Raw git config file content
+-            
++
+         Returns:
+             Parsed ConfigParser object
+-            
++
+         Raises:
+             GitParsingError: If config cannot be parsed
+         """
+         config = ConfigParser()
+-        
++
+         try:
+             # Convert git config format to ConfigParser format
+             normalized_content = self._normalize_git_config_format(config_content)
+             config.read_string(normalized_content)
+         except Exception as e:
+             raise GitParsingError(f"Failed to parse git config: {e}") from e
+-            
++
+         return config
+-    
++
+     def _normalize_git_config_format(self, config_content: str) -> str:
+         """Convert git config section format to ConfigParser format.
+ 
+         Converts [remote "origin"] to [remote origin] so ConfigParser can handle it.
+ 
+         Args:
+             config_content: Raw git config content
+ 
+         Returns:
+             Normalized config content for ConfigParser
+         """
+         # Regex to find sections like [type "name"] and replace them
+         section_pattern = re.compile(r'\[\s*([^\[\]\s"]+)\s*"([^"]+)"\s*\]')
+-        return section_pattern.sub(r'[\1 \2]', config_content)
+-    
++        return section_pattern.sub(r"[\1 \2]", config_content)
++
+     def parse_remote_url(self, remote_url: str) -> Optional[RemoteInfo]:
+         """Parse a git remote URL to extract repository information.
+-        
++
+         Args:
+             remote_url: Git remote URL (SSH or HTTPS format)
+-            
++
+         Returns:
+             RemoteInfo object if URL is parseable, None otherwise
+         """
+         if not remote_url:
+             return None
+-        
++
+         # Handle SSH format: git@github.com:owner/repo.git
+         ssh_pattern = r"^git@([^:]+):([^/]+)/([^/]+?)(?:\.git)?$"
+         ssh_match = re.match(ssh_pattern, remote_url)
+         if ssh_match:
+             host, owner, repo = ssh_match.groups()
+             return RemoteInfo(host=host, owner=owner, repo=repo, url=remote_url)
+-        
++
+         # Handle HTTPS format: https://github.com/owner/repo.git
+         https_pattern = r"^https://([^/]+)/([^/]+)/([^/]+?)(?:\.git)?$"
+         https_match = re.match(https_pattern, remote_url)
+         if https_match:
+             host, owner, repo = https_match.groups()
+             return RemoteInfo(host=host, owner=owner, repo=repo, url=remote_url)
+-        
++
+         return None
+-    
++
+     def get_repository_info(self) -> Optional[Tuple[str, str, str, str]]:
+         """Get complete repository information for GitHub PR URL construction.
+-        
++
+         Returns:
+             Tuple of (host, owner, repo, branch) if all information available,
+             None if any required information is missing
+         """
+         try:
+             branch = self.get_current_branch()
+             if branch is None:
+                 return None  # Detached HEAD
+-            
++
+             remote_url = self.get_remote_url()
+             if remote_url is None:
+                 return None  # No remote configured
+-            
++
+             remote_info = self.parse_remote_url(remote_url)
+             if remote_info is None or not remote_info.is_github:
+                 return None  # Not a GitHub repository
+-            
++
+             return remote_info.host, remote_info.owner, remote_info.repo, branch
+-            
++
+         except GitParsingError:
+-            return None
+\ No newline at end of file
++            return None
+diff --git a/gh_pr_rev_md/github_client.py b/gh_pr_rev_md/github_client.py
+index 2413189295c3e601f00f9e289fe16ebb63dbca69..91f25165930911c089fea86d6f66023ed81c1d80 100644
+--- a/gh_pr_rev_md/github_client.py
++++ b/gh_pr_rev_md/github_client.py
+@@ -21,183 +21,187 @@ class GitHubClient:
+             "Accept": "application/vnd.github.v3+json",
+             "X-GitHub-Api-Version": "2022-11-28",
+             "User-Agent": "gh-pr-rev-md",
+         }
+         if token:
+             headers["Authorization"] = f"bearer {token}"
+         self.session.headers.update(headers)
+ 
+     def get_pr_review_comments(
+         self,
+         owner: str,
+         repo: str,
+         pr_number: int,
+         include_outdated: bool = False,
+         include_resolved: bool = False,
+     ) -> List[Dict[str, Any]]:
+         """Fetch review comments for a PR using the GraphQL API."""
+         comments = []
+         threads_cursor = None
+ 
+         while True:
+             query, variables = self._build_graphql_query(
+                 owner, repo, pr_number, threads_cursor
+             )
+             response = self.session.post(
+-                self.graphql_url, json={"query": query, "variables": variables}, timeout=30
++                self.graphql_url,
++                json={"query": query, "variables": variables},
++                timeout=30,
+             )
+ 
+             if response.status_code != 200:
+                 raise GitHubAPIError(
+                     f"GitHub API error: {response.status_code} - {response.text}"
+                 )
+ 
+             data = response.json()
+             if "errors" in data:
+                 raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
+ 
+             pr_data = data.get("data", {}).get("repository", {}).get("pullRequest")
+             if not pr_data:
+                 raise GitHubAPIError(f"PR #{pr_number} not found in {owner}/{repo}")
+ 
+             review_threads = pr_data.get("reviewThreads", {})
+             for thread in review_threads.get("nodes", []):
+                 if not include_resolved and thread.get("isResolved"):
+                     continue
+ 
+                 # Handle pagination within each thread's comments
+                 thread_comments = self._get_all_thread_comments(
+                     thread, owner, repo, pr_number, include_outdated
+                 )
+                 comments.extend(thread_comments)
+ 
+             if review_threads.get("pageInfo", {}).get("hasNextPage"):
+                 threads_cursor = review_threads["pageInfo"]["endCursor"]
+             else:
+                 break
+ 
+         return sorted(comments, key=lambda c: c.get("createdAt", ""))
+ 
+     def _get_all_thread_comments(
+         self,
+         thread: Dict[str, Any],
+         owner: str,
+         repo: str,
+         pr_number: int,
+         include_outdated: bool,
+     ) -> List[Dict[str, Any]]:
+         """Get all comments from a thread, handling pagination within the thread."""
+         comments = []
+-        
++
+         # Get comments from the initial thread data
+         thread_comments_data = thread.get("comments", {})
+         for comment in thread_comments_data.get("nodes", []):
+             if not include_outdated and self._is_outdated(comment):
+                 continue
+             comments.append(self._format_graphql_comment(comment))
+-        
++
+         # If there are more comments in this thread, paginate through them
+         comments_page_info = thread_comments_data.get("pageInfo", {})
+         if comments_page_info.get("hasNextPage"):
+             thread_id = thread.get("id")
+             if thread_id:
+                 additional_comments = self._get_additional_thread_comments(
+                     thread_id, comments_page_info.get("endCursor"), include_outdated
+                 )
+                 comments.extend(additional_comments)
+-        
++
+         return comments
+ 
+     def _get_additional_thread_comments(
+         self, thread_id: str, comments_cursor: str, include_outdated: bool
+     ) -> List[Dict[str, Any]]:
+         """Fetch additional comments for a specific thread using pagination."""
+         comments = []
+-        
++
+         while comments_cursor:
+             query = """
+             query($threadId: ID!, $commentsCursor: String) {
+               node(id: $threadId) {
+                 ... on PullRequestReviewThread {
+                   comments(first: 100, after: $commentsCursor) {
+                     pageInfo {
+                       endCursor
+                       hasNextPage
+                     }
+                     nodes {
+                       id
+                       author {
+                         login
+                       }
+                       body
+                       createdAt
+                       updatedAt
+                       path
+                       diffHunk
+                       position
+                       url
+                       line
+                     }
+                   }
+                 }
+               }
+             }
+             """
+-            
++
+             variables = {
+                 "threadId": thread_id,
+                 "commentsCursor": comments_cursor,
+             }
+-            
++
+             response = self.session.post(
+-                self.graphql_url, json={"query": query, "variables": variables}, timeout=30
++                self.graphql_url,
++                json={"query": query, "variables": variables},
++                timeout=30,
+             )
+-            
++
+             if response.status_code != 200:
+                 raise GitHubAPIError(
+                     f"GitHub API error: {response.status_code} - {response.text}"
+                 )
+-            
++
+             data = response.json()
+             if "errors" in data:
+                 raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
+-            
++
+             thread_data = data.get("data", {}).get("node", {})
+             thread_comments_data = thread_data.get("comments", {})
+-            
++
+             for comment in thread_comments_data.get("nodes", []):
+                 if not include_outdated and self._is_outdated(comment):
+                     continue
+                 comments.append(self._format_graphql_comment(comment))
+-            
++
+             # Check if there are more pages
+             comments_page_info = thread_comments_data.get("pageInfo", {})
+             if comments_page_info.get("hasNextPage"):
+                 comments_cursor = comments_page_info.get("endCursor")
+             else:
+                 break
+-        
++
+         return comments
+ 
+     def _is_outdated(self, comment: Dict[str, Any]) -> bool:
+         """Determines if a comment is outdated."""
+         # In the GraphQL response, outdated comments have a null position.
+         return comment.get("position") is None
+ 
+     def _format_graphql_comment(self, comment: Dict[str, Any]) -> Dict[str, Any]:
+         """Formats a GraphQL comment object to match the structure of the REST API response."""
+         return {
+             "id": comment.get("id"),
+             "user": {"login": comment.get("author", {}).get("login")},
+             "body": comment.get("body"),
+             "created_at": comment.get("createdAt"),
+             "updated_at": comment.get("updatedAt"),
+             "path": comment.get("path"),
+             "diff_hunk": comment.get("diffHunk"),
+             "line": comment.get("line"),
+             "position": comment.get("position"),
+             "html_url": comment.get("url"),
+             # The 'side' isn't directly available in the same way,
+             # but we can use the outdated status to infer it.
+             "side": "LEFT" if self._is_outdated(comment) else "RIGHT",
+         }
+ 
+@@ -229,67 +233,74 @@ class GitHubClient:
+                       }
+                       body
+                       createdAt
+                       updatedAt
+                       path
+                       diffHunk
+                       position
+                       url
+                       line
+                     }
+                   }
+                 }
+               }
+             }
+           }
+         }
+         """
+         variables = {
+             "owner": owner,
+             "repo": repo,
+             "prNumber": pr_number,
+             "threadsCursor": threads_cursor,
+         }
+         return query, variables
+ 
+-    def find_pr_by_branch(self, owner: str, repo: str, branch_name: str) -> Optional[int]:
++    def find_pr_by_branch(
++        self, owner: str, repo: str, branch_name: str
++    ) -> Optional[int]:
+         """Find the PR number for a given branch name."""
+         query = """
+         query($owner: String!, $repo: String!, $branchName: String!) {
+           repository(owner: $owner, name: $repo) {
+             pullRequests(first: 10, states: [OPEN], headRefName: $branchName) {
+               nodes {
+                 number
+                 headRefName
+                 state
+               }
+             }
+           }
+         }
+         """
+         variables = {
+             "owner": owner,
+             "repo": repo,
+             "branchName": branch_name,
+         }
+ 
+         response = self.session.post(
+             self.graphql_url, json={"query": query, "variables": variables}, timeout=30
+         )
+ 
+         if response.status_code != 200:
+             raise GitHubAPIError(
+                 f"GitHub API error: {response.status_code} - {response.text}"
+             )
+ 
+         data = response.json()
+         if "errors" in data:
+             raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
+ 
+-        prs = data.get("data", {}).get("repository", {}).get("pullRequests", {}).get("nodes", [])
+-        
++        prs = (
++            data.get("data", {})
++            .get("repository", {})
++            .get("pullRequests", {})
++            .get("nodes", [])
++        )
++
+         # Return the first open PR for this branch
+         for pr in prs:
+             if pr.get("state") == "OPEN" and pr.get("headRefName") == branch_name:
+                 return pr.get("number")
+-        
+-        return None
+\ No newline at end of file
++
++        return None
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 54db3330341b36ce878fea258dfcef67bbd94d1e..78c9964f3e99a0ba23c67cbb3848240f685e6f00 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1,33 +1,34 @@
+ """Comprehensive tests for CLI functionality, focusing on file output features."""
+ 
+ import pytest
+ import subprocess
+ from click.testing import CliRunner
+ from unittest import mock
+ from pathlib import Path
+ from datetime import datetime
++import yaml
+ 
+ from gh_pr_rev_md import cli
+ from gh_pr_rev_md import github_client
+ from gh_pr_rev_md import config as config_module
+ 
+ 
+ # --- Fixtures ---
+ 
+ 
+ @pytest.fixture
+ def runner():
+     """Fixture for Click's CliRunner to invoke CLI commands."""
+     return CliRunner()
+ 
+ 
+ @pytest.fixture
+ def mock_github_client():
+     """Mocks the GitHubClient to control API responses."""
+     with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client_cls:
+         mock_instance = mock_client_cls.return_value
+         mock_instance.get_pr_review_comments.return_value = [
+             {
+                 "id": 1,
+                 "user": {"login": "testuser"},
+                 "body": "Test comment 1",
+@@ -782,25 +783,219 @@ def test_get_current_branch_pr_url_api_fallback_to_gh_cli():
+         mock_native.side_effect = cli.GitParsingError("Native parsing failed")
+ 
+         with mock.patch("subprocess.run") as mock_run:
+             mock_run.side_effect = _mock_subprocess_calls(
+                 mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                 mock.MagicMock(
+                     returncode=0, stdout="feature-branch"
+                 ),  # git branch succeeds
+                 mock.MagicMock(
+                     returncode=0, stdout="https://github.com/owner/repo.git"
+                 ),  # remote URL
+                 mock.MagicMock(
+                     returncode=0, stdout="https://github.com/owner/repo/pull/999"
+                 ),  # gh pr view succeeds
+             )
+ 
+             with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+                 mock_instance = mock.MagicMock()
+                 mock_instance.find_pr_by_branch.side_effect = (
+                     github_client.GitHubAPIError("API failed")
+                 )
+                 mock_client.return_value = mock_instance
+ 
+                 result = cli.get_current_branch_pr_url("fake-token")
+                 assert result == "https://github.com/owner/repo/pull/999"
++
++
++def test_get_current_branch_pr_url_subprocess_branch_error(monkeypatch):
++    """Branch retrieval errors should raise a helpful Click exception."""
++
++    def run_side_effect(
++        cmd, capture_output=True, text=True, check=True
++    ):  # pragma: no cover - type annotated
++        if cmd[:3] == ["git", "rev-parse", "--git-dir"]:
++            return subprocess.CompletedProcess(cmd, 0, stdout=".git\n")
++        raise subprocess.CalledProcessError(1, cmd, "error")
++
++    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
++
++    with pytest.raises(cli.click.BadParameter, match="Failed to get current branch"):
++        cli.get_current_branch_pr_url_subprocess()
++
++
++def test_get_current_branch_pr_url_subprocess_no_pr(monkeypatch):
++    """When no PR is found, a helpful error is raised."""
++
++    responses = [
++        subprocess.CompletedProcess(["git"], 0, stdout=".git\n"),
++        subprocess.CompletedProcess(["git"], 0, stdout="feature\n"),
++        subprocess.CompletedProcess(["git"], 0, stdout="origin\n"),
++        subprocess.CompletedProcess(
++            ["git"], 0, stdout="https://github.com/owner/repo.git\n"
++        ),
++        subprocess.CalledProcessError(1, ["gh"], "no pr"),
++    ]
++
++    def run_side_effect(
++        cmd, capture_output=True, text=True, check=True
++    ):  # pragma: no cover - type annotated
++        result = responses.pop(0)
++        if isinstance(result, subprocess.CalledProcessError):
++            raise result
++        return result
++
++    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
++
++    with pytest.raises(cli.click.BadParameter, match="No open pull request found"):
++        cli.get_current_branch_pr_url_subprocess()
++
++
++def test_get_current_branch_pr_url_native_fallback(monkeypatch):
++    """Native parser falls back to subprocess and surfaces errors."""
++
++    mock_repo = mock.MagicMock()
++    mock_repo.get_repository_info.return_value = (
++        "github.com",
++        "owner",
++        "repo",
++        "main",
++    )
++    monkeypatch.setattr(cli, "GitRepository", lambda: mock_repo)
++
++    mock_client = mock.MagicMock()
++    mock_client.find_pr_by_branch.side_effect = github_client.GitHubAPIError("boom")
++    monkeypatch.setattr(cli, "GitHubClient", lambda token: mock_client)
++
++    def run_side_effect(
++        cmd, capture_output=True, text=True, check=True
++    ):  # pragma: no cover - type annotated
++        raise subprocess.CalledProcessError(1, cmd, "error")
++
++    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
++
++    with pytest.raises(cli.click.BadParameter, match="No open pull request found"):
++        cli.get_current_branch_pr_url_native("token")
++
++
++def test_get_current_branch_pr_url_native_gh_cli_success(monkeypatch):
++    """Native git parsing uses gh CLI when API fails."""
++
++    mock_repo = mock.MagicMock()
++    mock_repo.get_repository_info.return_value = (
++        "github.com",
++        "owner",
++        "repo",
++        "main",
++    )
++    monkeypatch.setattr(cli, "GitRepository", lambda: mock_repo)
++
++    mock_client = mock.MagicMock()
++    mock_client.find_pr_by_branch.side_effect = github_client.GitHubAPIError("boom")
++    monkeypatch.setattr(cli, "GitHubClient", lambda token: mock_client)
++
++    responses = [
++        subprocess.CompletedProcess(
++            ["gh"], 0, stdout="https://github.com/owner/repo/pull/5\n"
++        ),
++    ]
++
++    def run_side_effect(
++        cmd, capture_output=True, text=True, check=True
++    ):  # pragma: no cover - type annotated
++        return responses.pop(0)
++
++    monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
++
++    result = cli.get_current_branch_pr_url_native("token")
++    assert result == "https://github.com/owner/repo/pull/5"
++
++
++def test_interactive_config_setup_new_config(tmp_path, monkeypatch):
++    """Interactive config setup handles browser errors and chmod failures."""
++
++    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
++
++    config_dir = tmp_path / "gh-pr-rev-md"
++    config_dir.mkdir(parents=True)
++    (config_dir / "config.yaml").write_bytes(b"\xff")
++
++    confirms = iter([True, True, True])
++    monkeypatch.setattr(cli.click, "confirm", lambda *a, **k: next(confirms))
++    monkeypatch.setattr(cli.click, "prompt", lambda *a, **k: "new_token")
++    monkeypatch.setattr(
++        cli.webbrowser,
++        "open",
++        lambda *a, **k: (_ for _ in ()).throw(OSError("no browser")),
++    )
++    monkeypatch.setattr(
++        cli.os,
++        "chmod",
++        lambda *a, **k: (_ for _ in ()).throw(PermissionError("no chmod")),
++    )
++
++    cli._interactive_config_setup()
++    assert (config_dir / "config.yaml").exists()
++
++
++def test_interactive_config_setup_existing_token(tmp_path, monkeypatch):
++    """Existing config is loaded and token can be replaced."""
++
++    config_dir = tmp_path / "gh-pr-rev-md"
++    config_dir.mkdir(parents=True)
++    (config_dir / "config.yaml").write_text(yaml.safe_dump({"token": "old"}))
++
++    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
++
++    confirms = iter([False, False, False, False])
++    monkeypatch.setattr(cli.click, "confirm", lambda *a, **k: next(confirms))
++    monkeypatch.setattr(cli.click, "prompt", lambda *a, **k: "replacement")
++    monkeypatch.setattr(cli.webbrowser, "open", lambda *a, **k: None)
++    monkeypatch.setattr(cli.os, "chmod", lambda *a, **k: None)
++
++    cli._interactive_config_setup()
++
++    data = yaml.safe_load((config_dir / "config.yaml").read_text())
++    assert data["token"] == "replacement"
++
++
++def test_interactive_config_setup_open_success(tmp_path, monkeypatch):
++    """Browser launch path runs without errors."""
++
++    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
++    confirms = iter([True, True, True])
++    monkeypatch.setattr(cli.click, "confirm", lambda *a, **k: next(confirms))
++    monkeypatch.setattr(cli.click, "prompt", lambda *a, **k: "token")
++    monkeypatch.setattr(cli.webbrowser, "open", lambda *a, **k: None)
++    monkeypatch.setattr(cli.os, "chmod", lambda *a, **k: None)
++
++    cli._interactive_config_setup()
++    assert (tmp_path / "gh-pr-rev-md" / "config.yaml").exists()
++
++
++def test_main_config_set_success(runner, monkeypatch):
++    """--config-set exits cleanly on success."""
++
++    monkeypatch.setattr(cli, "_interactive_config_setup", lambda: None)
++    result = runner.invoke(cli.main, ["--config-set"])
++    assert result.exit_code == 0
++
++
++def test_main_config_set_error(runner, monkeypatch):
++    """Errors during config setup exit with status 1."""
++
++    def bad_setup():
++        raise yaml.YAMLError("bad")
++
++    monkeypatch.setattr(cli, "_interactive_config_setup", bad_setup)
++    result = runner.invoke(cli.main, ["--config-set"])
++    assert result.exit_code == 1
++    assert "Error during config setup" in result.output
++
++
++def test_main_missing_pr_url_error(runner, monkeypatch):
++    """Running without PR URL should fail fast."""
++
++    monkeypatch.setattr(cli, "load_config", lambda: {})
++    result = runner.invoke(cli.main, [])
++    assert result.exit_code == 1
++    assert "PR_URL is required" in result.output
+diff --git a/tests/test_config.py b/tests/test_config.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..39f4b95f5c6cd03c3342bc7cca3c13da4126cec5
+--- /dev/null
++++ b/tests/test_config.py
+@@ -0,0 +1,27 @@
++import pytest
++from pathlib import Path
++from gh_pr_rev_md import config
++
++
++def test_safe_yaml_load_empty_file(tmp_path: Path) -> None:
++    path = tmp_path / "config.yaml"
++    path.write_text("", encoding="utf-8")
++    assert config._safe_yaml_load(path) == {}
++
++
++def test_safe_yaml_load_non_mapping(tmp_path: Path) -> None:
++    path = tmp_path / "config.yaml"
++    path.write_text("- item1\n- item2\n", encoding="utf-8")
++    assert config._safe_yaml_load(path) == {}
++
++
++def test_safe_yaml_load_missing_file(tmp_path: Path) -> None:
++    path = tmp_path / "missing.yaml"
++    assert config._safe_yaml_load(path) == {}
++
++
++def test_safe_yaml_load_invalid_yaml(tmp_path: Path) -> None:
++    path = tmp_path / "config.yaml"
++    path.write_text("[unclosed", encoding="utf-8")
++    with pytest.raises(RuntimeError):
++        config._safe_yaml_load(path)
+diff --git a/tests/test_formatter.py b/tests/test_formatter.py
+index c7991f9b5c44aa39f98921317fa121f929c76e01..41c23391c7057a0893e78f9f123fa64a7deded85 100644
+--- a/tests/test_formatter.py
++++ b/tests/test_formatter.py
+@@ -1,28 +1,27 @@
+ """Tests for markdown formatting functionality."""
+ 
+-
+ from gh_pr_rev_md.formatter import format_comments_as_markdown, format_timestamp
+ 
+ 
+ def test_format_timestamp_valid():
+     """Test formatting of valid ISO timestamps."""
+     test_cases = [
+         ("2023-01-01T10:00:00Z", "2023-01-01 10:00:00 UTC"),
+         ("2023-12-25T23:59:59Z", "2023-12-25 23:59:59 UTC"),
+         ("2023-06-15T12:30:45Z", "2023-06-15 12:30:45 UTC"),
+         ("2023-01-01T00:00:00Z", "2023-01-01 00:00:00 UTC"),
+     ]
+ 
+     for input_timestamp, expected_output in test_cases:
+         result = format_timestamp(input_timestamp)
+         assert result == expected_output
+ 
+ 
+ def test_format_timestamp_edge_cases():
+     """Test formatting of edge case timestamps."""
+     # Empty string
+     assert format_timestamp("") == "Unknown"
+ 
+     # Invalid format should return original string
+     assert format_timestamp("invalid-timestamp") == "invalid-timestamp"
+     assert format_timestamp("2023-13-45") == "2023-13-45"
+diff --git a/tests/test_git_utils.py b/tests/test_git_utils.py
+index 48f24d40baa49dec1c34e845a1213a4a937c67b6..a1ea6f0b0e577ea5355d7210ed5f644f5ee93229 100644
+--- a/tests/test_git_utils.py
++++ b/tests/test_git_utils.py
+@@ -1,627 +1,652 @@
+ """Comprehensive tests for git_utils.py native git parsing functionality."""
+ 
+ import pytest
+ 
+ from gh_pr_rev_md.git_utils import GitParsingError, GitRepository, RemoteInfo
+ 
+ 
+ class TestGitRepository:
+     """Test cases for GitRepository class."""
+ 
+     def test_init_with_valid_git_repo(self, tmp_path):
+         """Test GitRepository initialization with a valid git repository."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+-        
++
+         repo = GitRepository(str(tmp_path))
+         assert repo.git_dir == git_dir
+         assert repo.repo_path == tmp_path.resolve()
+ 
+     def test_init_with_nested_git_repo(self, tmp_path):
+         """Test GitRepository finds .git directory in parent directories."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+-        
++
+         nested_dir = tmp_path / "src" / "components"
+         nested_dir.mkdir(parents=True)
+-        
++
+         repo = GitRepository(str(nested_dir))
+         assert repo.git_dir == git_dir
+ 
+     def test_init_with_worktree_git_file(self, tmp_path):
+         """Test GitRepository handles worktree .git files."""
+         main_git_dir = tmp_path / "main_repo" / ".git"
+         main_git_dir.mkdir(parents=True)
+-        
++
+         worktree_git_dir = main_git_dir / "worktrees" / "feature_branch"
+         worktree_git_dir.mkdir(parents=True)
+-        
++
+         worktree_dir = tmp_path / "feature_worktree"
+         worktree_dir.mkdir()
+-        
++
+         # Create .git file pointing to worktree gitdir
+         git_file = worktree_dir / ".git"
+         git_file.write_text(f"gitdir: {worktree_git_dir}")
+-        
++
+         repo = GitRepository(str(worktree_dir))
+         assert repo.git_dir == worktree_git_dir
+ 
+     def test_init_with_relative_gitdir_path(self, tmp_path):
+         """Test GitRepository handles relative gitdir paths in .git files."""
+         main_git_dir = tmp_path / ".git"
+         main_git_dir.mkdir()
+-        
++
+         worktree_git_dir = main_git_dir / "worktrees" / "feature"
+         worktree_git_dir.mkdir(parents=True)
+-        
++
+         worktree_dir = tmp_path / "worktree"
+         worktree_dir.mkdir()
+-        
++
+         # Create .git file with relative path
+         git_file = worktree_dir / ".git"
+         git_file.write_text("gitdir: ../.git/worktrees/feature")
+-        
++
+         repo = GitRepository(str(worktree_dir))
+         assert repo.git_dir == worktree_git_dir
+ 
+     def test_init_not_in_git_repo(self, tmp_path):
+         """Test GitRepository raises error when not in a git repository."""
+         with pytest.raises(GitParsingError, match="Not in a git repository"):
+             GitRepository(str(tmp_path))
+ 
+     def test_init_invalid_git_file(self, tmp_path):
+         """Test GitRepository handles invalid .git files gracefully."""
+         git_file = tmp_path / ".git"
+         git_file.write_text("invalid content")
+-        
++
+         with pytest.raises(GitParsingError, match="Not in a git repository"):
+             GitRepository(str(tmp_path))
+ 
+     def test_init_unreadable_git_file(self, tmp_path):
+         """Test GitRepository handles unreadable .git files."""
+         git_file = tmp_path / ".git"
+         git_file.write_bytes(b"\xff\xfe\xfd")  # Invalid UTF-8 bytes
+-        
++
+         with pytest.raises(GitParsingError, match="Failed to read .git file"):
+             GitRepository(str(tmp_path))
+ 
+ 
+ class TestGetCurrentBranch:
+     """Test cases for get_current_branch method."""
+ 
+     def create_git_repo(self, tmp_path):
+         """Helper to create a basic git repository structure."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+         return GitRepository(str(tmp_path))
+ 
+     def test_get_current_branch_symbolic_ref(self, tmp_path):
+         """Test getting current branch from symbolic ref."""
+         repo = self.create_git_repo(tmp_path)
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("ref: refs/heads/main")
+-        
++
+         branch = repo.get_current_branch()
+         assert branch == "main"
+ 
+     def test_get_current_branch_feature_branch(self, tmp_path):
+         """Test getting current branch for feature branches."""
+         repo = self.create_git_repo(tmp_path)
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("ref: refs/heads/feature/user-auth")
+-        
++
+         branch = repo.get_current_branch()
+         assert branch == "feature/user-auth"
+ 
+     def test_get_current_branch_detached_head(self, tmp_path):
+         """Test getting current branch when in detached HEAD state."""
+         repo = self.create_git_repo(tmp_path)
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("a1b2c3d4e5f6789012345678901234567890abcd")
+-        
++
+         branch = repo.get_current_branch()
+         assert branch is None
+ 
+     def test_get_current_branch_tag_ref(self, tmp_path):
+         """Test getting current branch when HEAD points to a tag."""
+         repo = self.create_git_repo(tmp_path)
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("ref: refs/tags/v1.0.0")
+-        
++
+         branch = repo.get_current_branch()
+         assert branch == "v1.0.0"
+ 
+     def test_get_current_branch_remote_ref(self, tmp_path):
+         """Test getting current branch when HEAD points to a remote ref."""
+         repo = self.create_git_repo(tmp_path)
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("ref: refs/remotes/origin/main")
+-        
++
+         branch = repo.get_current_branch()
+         assert branch == "main"
+ 
+     def test_get_current_branch_missing_head_file(self, tmp_path):
+         """Test error handling when HEAD file is missing."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         with pytest.raises(GitParsingError, match="Failed to read HEAD file"):
+             repo.get_current_branch()
+ 
+     def test_get_current_branch_unreadable_head_file(self, tmp_path):
+         """Test error handling when HEAD file is unreadable."""
+         repo = self.create_git_repo(tmp_path)
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_bytes(b"\xff\xfe\xfd")  # Invalid UTF-8 bytes
+-        
++
+         with pytest.raises(GitParsingError, match="Failed to read HEAD file"):
+             repo.get_current_branch()
+ 
+ 
+ class TestGetRemoteUrl:
+     """Test cases for get_remote_url method."""
+ 
+     def create_git_repo_with_config(self, tmp_path, config_content):
+         """Helper to create git repo with specific config content."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+         config_file = git_dir / "config"
+         config_file.write_text(config_content)
+         return GitRepository(str(tmp_path))
+ 
+     def test_get_remote_url_origin_default(self, tmp_path):
+         """Test getting remote URL for default origin remote."""
+         config_content = """
+ [remote "origin"]
+     url = https://github.com/owner/repo.git
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         url = repo.get_remote_url()
+         assert url == "https://github.com/owner/repo.git"
+ 
+     def test_get_remote_url_specific_remote(self, tmp_path):
+         """Test getting remote URL for a specific remote."""
+         config_content = """
+ [remote "upstream"]
+     url = https://github.com/upstream/repo.git
+     fetch = +refs/heads/*:refs/remotes/upstream/*
+ 
+ [remote "origin"]
+     url = https://github.com/fork/repo.git
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         url = repo.get_remote_url("upstream")
+         assert url == "https://github.com/upstream/repo.git"
+ 
++    def test_get_remote_url_nonexistent_uses_origin(self, tmp_path):
++        """Nonexistent remote falls back to origin URL."""
++        config_content = """
++[remote "origin"]
++    url = https://github.com/owner/repo.git
++    fetch = +refs/heads/*:refs/remotes/origin/*
++"""
++        repo = self.create_git_repo_with_config(tmp_path, config_content)
++
++        url = repo.get_remote_url("nonexistent")
++        assert url == "https://github.com/owner/repo.git"
++
+     def test_get_remote_url_branch_tracking(self, tmp_path):
+         """Test getting remote URL based on current branch's tracking remote."""
+         config_content = """
+ [branch "feature"]
+     remote = upstream
+     merge = refs/heads/feature
+ 
+ [remote "upstream"]
+     url = https://github.com/upstream/repo.git
+     fetch = +refs/heads/*:refs/remotes/upstream/*
+ 
+ [remote "origin"]
+     url = https://github.com/fork/repo.git
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         # Mock current branch
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("ref: refs/heads/feature")
+-        
++
+         url = repo.get_remote_url()
+         assert url == "https://github.com/upstream/repo.git"
+ 
+     def test_get_remote_url_fallback_to_origin(self, tmp_path):
+         """Test fallback to origin when branch tracking is not configured."""
+         config_content = """
+ [branch "feature"]
+     merge = refs/heads/feature
+ 
+ [remote "upstream"]
+     url = https://github.com/upstream/repo.git
+     fetch = +refs/heads/*:refs/remotes/upstream/*
+ 
+ [remote "origin"]
+     url = https://github.com/origin/repo.git
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         # Mock current branch
+         head_file = repo.git_dir / "HEAD"
+         head_file.write_text("ref: refs/heads/feature")
+-        
++
+         url = repo.get_remote_url()
+         assert url == "https://github.com/origin/repo.git"
+ 
+     def test_get_remote_url_first_available_remote(self, tmp_path):
+         """Test using first available remote when origin doesn't exist."""
+         config_content = """
+ [remote "upstream"]
+     url = https://github.com/upstream/repo.git
+     fetch = +refs/heads/*:refs/remotes/upstream/*
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         url = repo.get_remote_url()
+         assert url == "https://github.com/upstream/repo.git"
+ 
+     def test_get_remote_url_ssh_format(self, tmp_path):
+         """Test getting SSH format remote URL."""
+         config_content = """
+ [remote "origin"]
+     url = git@github.com:owner/repo.git
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         url = repo.get_remote_url()
+         assert url == "git@github.com:owner/repo.git"
+ 
+     def test_get_remote_url_no_config_file(self, tmp_path):
+         """Test handling when config file doesn't exist."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+         repo = GitRepository(str(tmp_path))
+-        
++
+         url = repo.get_remote_url()
+         assert url is None
+ 
+     def test_get_remote_url_no_remotes(self, tmp_path):
+         """Test handling when no remotes are configured."""
+         config_content = """
+ [core]
+     repositoryformatversion = 0
+     filemode = true
+ """
+         repo = self.create_git_repo_with_config(tmp_path, config_content)
+-        
++
+         url = repo.get_remote_url()
+         assert url is None
+ 
+     def test_get_remote_url_invalid_config(self, tmp_path):
+         """Test error handling with invalid config file."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+         config_file = git_dir / "config"
+         config_file.write_text("invalid config content [[[")
+-        
++
+         repo = GitRepository(str(tmp_path))
+-        
++
+         with pytest.raises(GitParsingError, match="Failed to parse git config"):
+             repo.get_remote_url()
+ 
+     def test_get_remote_url_unreadable_config(self, tmp_path):
+         """Test error handling when config file is unreadable."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+         config_file = git_dir / "config"
+         config_file.write_bytes(b"\xff\xfe\xfd")  # Invalid UTF-8 bytes
+-        
++
+         repo = GitRepository(str(tmp_path))
+-        
++
+         with pytest.raises(GitParsingError, match="Failed to read git config"):
+             repo.get_remote_url()
+ 
+ 
+ class TestParseRemoteUrl:
+     """Test cases for parse_remote_url method."""
+ 
+     def create_git_repo(self, tmp_path):
+         """Helper to create a basic git repository."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+         return GitRepository(str(tmp_path))
+ 
+     def test_parse_remote_url_https_github(self, tmp_path):
+         """Test parsing HTTPS GitHub URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("https://github.com/owner/repo.git")
+-        
++
+         assert remote_info is not None
+         assert remote_info.host == "github.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+         assert remote_info.url == "https://github.com/owner/repo.git"
+         assert remote_info.is_github is True
+ 
+     def test_parse_remote_url_https_github_no_git_suffix(self, tmp_path):
+         """Test parsing HTTPS GitHub URL without .git suffix."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("https://github.com/owner/repo")
+-        
++
+         assert remote_info is not None
+         assert remote_info.host == "github.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+ 
+     def test_parse_remote_url_ssh_github(self, tmp_path):
+         """Test parsing SSH GitHub URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("git@github.com:owner/repo.git")
+-        
++
+         assert remote_info is not None
+         assert remote_info.host == "github.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+         assert remote_info.url == "git@github.com:owner/repo.git"
+         assert remote_info.is_github is True
+ 
+     def test_parse_remote_url_ssh_github_no_git_suffix(self, tmp_path):
+         """Test parsing SSH GitHub URL without .git suffix."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("git@github.com:owner/repo")
+-        
++
+         assert remote_info is not None
+         assert remote_info.host == "github.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+ 
+     def test_parse_remote_url_github_enterprise(self, tmp_path):
+         """Test parsing GitHub Enterprise URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
+-        remote_info = repo.parse_remote_url("https://github.enterprise.com/owner/repo.git")
+-        
++
++        remote_info = repo.parse_remote_url(
++            "https://github.enterprise.com/owner/repo.git"
++        )
++
+         assert remote_info is not None
+         assert remote_info.host == "github.enterprise.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+         assert remote_info.is_github is True
+ 
+     def test_parse_remote_url_ssh_github_enterprise(self, tmp_path):
+         """Test parsing SSH GitHub Enterprise URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("git@github.enterprise.com:owner/repo.git")
+-        
++
+         assert remote_info is not None
+         assert remote_info.host == "github.enterprise.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+         assert remote_info.is_github is True
+ 
+     def test_parse_remote_url_non_github(self, tmp_path):
+         """Test parsing non-GitHub URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("https://gitlab.com/owner/repo.git")
+-        
++
+         assert remote_info is not None
+         assert remote_info.host == "gitlab.com"
+         assert remote_info.owner == "owner"
+         assert remote_info.repo == "repo"
+         assert remote_info.is_github is False
+ 
+     def test_parse_remote_url_invalid_format(self, tmp_path):
+         """Test parsing invalid URL format."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("invalid-url")
+         assert remote_info is None
+ 
+     def test_parse_remote_url_empty_string(self, tmp_path):
+         """Test parsing empty URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url("")
+         assert remote_info is None
+ 
+     def test_parse_remote_url_none(self, tmp_path):
+         """Test parsing None URL."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         remote_info = repo.parse_remote_url(None)
+         assert remote_info is None
+ 
+     def test_parse_remote_url_complex_repo_names(self, tmp_path):
+         """Test parsing URLs with complex repository names."""
+         repo = self.create_git_repo(tmp_path)
+-        
++
+         test_cases = [
+             ("https://github.com/owner-name/repo-name.git", "owner-name", "repo-name"),
+             ("https://github.com/owner_name/repo_name.git", "owner_name", "repo_name"),
+             ("git@github.com:org.name/repo.name.git", "org.name", "repo.name"),
+         ]
+-        
++
+         for url, expected_owner, expected_repo in test_cases:
+             remote_info = repo.parse_remote_url(url)
+             assert remote_info is not None
+             assert remote_info.owner == expected_owner
+             assert remote_info.repo == expected_repo
+ 
+ 
+ class TestGetRepositoryInfo:
+     """Test cases for get_repository_info method."""
+ 
+-    def create_complete_git_repo(self, tmp_path, branch="main", remote_url="https://github.com/owner/repo.git"):
++    def create_complete_git_repo(
++        self, tmp_path, branch="main", remote_url="https://github.com/owner/repo.git"
++    ):
+         """Helper to create a complete git repo with branch and remote."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+-        
++
+         # Create HEAD file
+         head_file = git_dir / "HEAD"
+         head_file.write_text(f"ref: refs/heads/{branch}")
+-        
++
+         # Create config file
+         config_content = f"""
+ [remote "origin"]
+     url = {remote_url}
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         config_file = git_dir / "config"
+         config_file.write_text(config_content)
+-        
++
+         return GitRepository(str(tmp_path))
+ 
+     def test_get_repository_info_complete(self, tmp_path):
+         """Test getting complete repository information."""
+         repo = self.create_complete_git_repo(tmp_path)
+-        
++
+         info = repo.get_repository_info()
+-        
++
+         assert info is not None
+         host, owner, repo_name, branch = info
+         assert host == "github.com"
+         assert owner == "owner"
+         assert repo_name == "repo"
+         assert branch == "main"
+ 
+     def test_get_repository_info_github_enterprise(self, tmp_path):
+         """Test getting repository info for GitHub Enterprise."""
+         repo = self.create_complete_git_repo(
+-            tmp_path, 
++            tmp_path,
+             branch="feature/auth",
+-            remote_url="https://github.enterprise.com/company/project.git"
++            remote_url="https://github.enterprise.com/company/project.git",
+         )
+-        
++
+         info = repo.get_repository_info()
+-        
++
+         assert info is not None
+         host, owner, repo_name, branch = info
+         assert host == "github.enterprise.com"
+         assert owner == "company"
+         assert repo_name == "project"
+         assert branch == "feature/auth"
+ 
+     def test_get_repository_info_ssh_url(self, tmp_path):
+         """Test getting repository info with SSH URL."""
+         repo = self.create_complete_git_repo(
+-            tmp_path,
+-            remote_url="git@github.com:owner/repo.git"
++            tmp_path, remote_url="git@github.com:owner/repo.git"
+         )
+-        
++
+         info = repo.get_repository_info()
+-        
++
+         assert info is not None
+         host, owner, repo_name, branch = info
+         assert host == "github.com"
+         assert owner == "owner"
+         assert repo_name == "repo"
+         assert branch == "main"
+ 
+     def test_get_repository_info_detached_head(self, tmp_path):
+         """Test getting repository info in detached HEAD state."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+-        
++
+         # Create HEAD file with commit hash
+         head_file = git_dir / "HEAD"
+         head_file.write_text("a1b2c3d4e5f6789012345678901234567890abcd")
+-        
++
+         # Create config file
+         config_content = """
+ [remote "origin"]
+     url = https://github.com/owner/repo.git
+     fetch = +refs/heads/*:refs/remotes/origin/*
+ """
+         config_file = git_dir / "config"
+         config_file.write_text(config_content)
+-        
++
+         repo = GitRepository(str(tmp_path))
+-        
++
++        info = repo.get_repository_info()
++        assert info is None
++
++    def test_get_repository_info_handles_gitparsing_error(self, tmp_path, monkeypatch):
++        """Errors in subcalls should be caught and return None."""
++        git_dir = tmp_path / ".git"
++        git_dir.mkdir()
++        repo = GitRepository(str(tmp_path))
++
++        def fail(*args, **kwargs):
++            raise GitParsingError("boom")
++
++        monkeypatch.setattr(repo, "get_current_branch", fail)
++
+         info = repo.get_repository_info()
+         assert info is None
+ 
+     def test_get_repository_info_no_remote(self, tmp_path):
+         """Test getting repository info when no remote is configured."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+-        
++
+         # Create HEAD file
+         head_file = git_dir / "HEAD"
+         head_file.write_text("ref: refs/heads/main")
+-        
++
+         # Create config file without remotes
+         config_content = """
+ [core]
+     repositoryformatversion = 0
+ """
+         config_file = git_dir / "config"
+         config_file.write_text(config_content)
+-        
++
+         repo = GitRepository(str(tmp_path))
+-        
++
+         info = repo.get_repository_info()
+         assert info is None
+ 
+     def test_get_repository_info_non_github_remote(self, tmp_path):
+         """Test getting repository info for non-GitHub remote."""
+         repo = self.create_complete_git_repo(
+-            tmp_path,
+-            remote_url="https://gitlab.com/owner/repo.git"
++            tmp_path, remote_url="https://gitlab.com/owner/repo.git"
+         )
+-        
++
+         info = repo.get_repository_info()
+         assert info is None
+ 
+     def test_get_repository_info_invalid_remote_url(self, tmp_path):
+         """Test getting repository info with invalid remote URL."""
+-        repo = self.create_complete_git_repo(
+-            tmp_path,
+-            remote_url="invalid-url"
+-        )
+-        
++        repo = self.create_complete_git_repo(tmp_path, remote_url="invalid-url")
++
+         info = repo.get_repository_info()
+         assert info is None
+ 
+     def test_get_repository_info_parsing_error(self, tmp_path):
+         """Test getting repository info when parsing fails."""
+         git_dir = tmp_path / ".git"
+         git_dir.mkdir()
+-        
++
+         # Create invalid HEAD file
+         head_file = git_dir / "HEAD"
+         head_file.write_bytes(b"\x00\x01\x02")  # Invalid UTF-8
+-        
++
+         repo = GitRepository(str(tmp_path))
+-        
++
+         info = repo.get_repository_info()
+         assert info is None
+ 
+ 
+ class TestRemoteInfo:
+     """Test cases for RemoteInfo dataclass."""
+ 
+     def test_remote_info_github_detection(self):
+         """Test GitHub detection in RemoteInfo."""
+         github_remote = RemoteInfo(
+             host="github.com",
+-            owner="owner", 
++            owner="owner",
+             repo="repo",
+-            url="https://github.com/owner/repo.git"
++            url="https://github.com/owner/repo.git",
+         )
+         assert github_remote.is_github is True
+ 
+     def test_remote_info_github_enterprise_detection(self):
+         """Test GitHub Enterprise detection in RemoteInfo."""
+         ghe_remote = RemoteInfo(
+             host="github.enterprise.com",
+             owner="owner",
+-            repo="repo", 
+-            url="https://github.enterprise.com/owner/repo.git"
++            repo="repo",
++            url="https://github.enterprise.com/owner/repo.git",
+         )
+         assert ghe_remote.is_github is True
+ 
+     def test_remote_info_non_github_detection(self):
+         """Test non-GitHub detection in RemoteInfo."""
+         gitlab_remote = RemoteInfo(
+             host="gitlab.com",
+             owner="owner",
+             repo="repo",
+-            url="https://gitlab.com/owner/repo.git"
++            url="https://gitlab.com/owner/repo.git",
+         )
+-        assert gitlab_remote.is_github is False
+\ No newline at end of file
++        assert gitlab_remote.is_github is False
+diff --git a/tests/test_github_client.py b/tests/test_github_client.py
+index f000857803195d8d30d64a7036144bb290e3ad63..d22f7af052f884adc8d522b642400a9db2b8f242 100644
+--- a/tests/test_github_client.py
++++ b/tests/test_github_client.py
+@@ -211,50 +211,230 @@ def test_find_pr_by_branch_success(mock_post, github_client):
+ 
+ @mock.patch("requests.Session.post")
+ def test_find_pr_by_branch_no_match(mock_post, github_client):
+     """Test finding PR by branch name when no matching PR exists."""
+     mock_post.return_value.status_code = 200
+     mock_post.return_value.json.return_value = {
+         "data": {
+             "repository": {
+                 "pullRequests": {
+                     "nodes": [
+                         {
+                             "number": 123,
+                             "headRefName": "different-branch",
+                             "state": "OPEN",
+                         },
+                     ]
+                 }
+             }
+         }
+     }
+ 
+     pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+     assert pr_number is None
+ 
+ 
++@mock.patch("requests.Session.post")
++def test_get_pr_review_comments_pr_not_found(mock_post, github_client):
++    """PR absence triggers a specific API error."""
++
++    mock_post.return_value.status_code = 200
++    mock_post.return_value.json.return_value = {
++        "data": {"repository": {"pullRequest": None}}
++    }
++
++    with pytest.raises(GitHubAPIError):
++        github_client.get_pr_review_comments("o", "r", 1)
++
++
++@mock.patch("requests.Session.post")
++def test_get_pr_review_comments_thread_pagination(mock_post, github_client):
++    """Thread pagination is followed using cursors."""
++
++    def make_response(data):
++        resp = mock.Mock()
++        resp.status_code = 200
++        resp.json.return_value = data
++        return resp
++
++    first_page = {
++        "data": {
++            "repository": {
++                "pullRequest": {
++                    "reviewThreads": {
++                        "pageInfo": {"hasNextPage": True, "endCursor": "t1"},
++                        "nodes": [],
++                    }
++                }
++            }
++        }
++    }
++
++    second_page = {
++        "data": {
++            "repository": {
++                "pullRequest": {
++                    "reviewThreads": {
++                        "pageInfo": {"hasNextPage": False, "endCursor": None},
++                        "nodes": [],
++                    }
++                }
++            }
++        }
++    }
++
++    mock_post.side_effect = [make_response(first_page), make_response(second_page)]
++
++    comments = github_client.get_pr_review_comments("o", "r", 1)
++    assert comments == []
++    assert mock_post.call_count == 2
++
++
++def test_get_all_thread_comments_paginates(monkeypatch, github_client):
++    """_get_all_thread_comments should request additional pages when needed."""
++
++    thread = {
++        "id": "T1",
++        "isResolved": False,
++        "comments": {
++            "nodes": [],
++            "pageInfo": {"hasNextPage": True, "endCursor": "C1"},
++        },
++    }
++
++    monkeypatch.setattr(
++        github_client,
++        "_get_additional_thread_comments",
++        lambda thread_id, cursor, include_outdated: [
++            {
++                "id": "c2",
++                "user": {"login": "u"},
++                "body": "b",
++                "created_at": "0",
++                "updated_at": "0",
++                "path": "p",
++                "diff_hunk": "h",
++                "line": 1,
++                "position": 1,
++                "html_url": "u",
++                "side": "RIGHT",
++            }
++        ],
++    )
++
++    comments = github_client._get_all_thread_comments(
++        thread, "o", "r", 1, include_outdated=True
++    )
++    assert len(comments) == 1
++
++
++@mock.patch("requests.Session.post")
++def test_get_additional_thread_comments_pagination_and_filter(mock_post, github_client):
++    """Additional comments pagination continues until complete and filters outdated."""
++
++    def make_response(data):
++        resp = mock.Mock()
++        resp.status_code = 200
++        resp.json.return_value = data
++        return resp
++
++    first = {
++        "data": {
++            "node": {
++                "comments": {
++                    "pageInfo": {"hasNextPage": True, "endCursor": "C2"},
++                    "nodes": [
++                        {
++                            "id": "c1",
++                            "author": {"login": "u"},
++                            "body": "old",
++                            "createdAt": "0",
++                            "updatedAt": "0",
++                            "path": "p",
++                            "diffHunk": "h",
++                            "position": None,
++                            "url": "u",
++                            "line": 1,
++                        }
++                    ],
++                }
++            }
++        }
++    }
++
++    second = {
++        "data": {
++            "node": {
++                "comments": {
++                    "pageInfo": {"hasNextPage": False, "endCursor": None},
++                    "nodes": [
++                        {
++                            "id": "c2",
++                            "author": {"login": "u"},
++                            "body": "new",
++                            "createdAt": "0",
++                            "updatedAt": "0",
++                            "path": "p",
++                            "diffHunk": "h",
++                            "position": 1,
++                            "url": "u",
++                            "line": 1,
++                        }
++                    ],
++                }
++            }
++        }
++    }
++
++    mock_post.side_effect = [make_response(first), make_response(second)]
++
++    comments = github_client._get_additional_thread_comments("T1", "C1", False)
++    assert len(comments) == 1
++
++
++@mock.patch("requests.Session.post")
++def test_get_additional_thread_comments_http_error(mock_post, github_client):
++    """HTTP errors in pagination raise GitHubAPIError."""
++
++    mock_post.return_value.status_code = 500
++    mock_post.return_value.text = "boom"
++
++    with pytest.raises(GitHubAPIError):
++        github_client._get_additional_thread_comments("T1", "C1", True)
++
++
++@mock.patch("requests.Session.post")
++def test_get_additional_thread_comments_graphql_error(mock_post, github_client):
++    """GraphQL errors in pagination raise GitHubAPIError."""
++
++    mock_post.return_value.status_code = 200
++    mock_post.return_value.json.return_value = {"errors": "nope"}
++
++    with pytest.raises(GitHubAPIError):
++        github_client._get_additional_thread_comments("T1", "C1", True)
++
++
+ @mock.patch("requests.Session.post")
+ def test_find_pr_by_branch_closed_pr(mock_post, github_client):
+     """Test finding PR by branch name ignores closed PRs."""
+     mock_post.return_value.status_code = 200
+     mock_post.return_value.json.return_value = {
+         "data": {
+             "repository": {
+                 "pullRequests": {
+                     "nodes": [
+                         {
+                             "number": 123,
+                             "headRefName": "feature-branch",
+                             "state": "CLOSED",
+                         },
+                     ]
+                 }
+             }
+         }
+     }
+ 
+     pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+     assert pr_number is None
+ 
+ 
+ @mock.patch("requests.Session.post")
+@@ -291,36 +471,30 @@ def test_find_pr_by_branch_api_error(mock_post, github_client):
+     """Test handling of API errors in find_pr_by_branch."""
+     mock_post.return_value.status_code = 200
+     mock_post.return_value.json.return_value = {"errors": "Something went wrong"}
+ 
+     with pytest.raises(GitHubAPIError) as exc_info:
+         github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+     assert "GitHub GraphQL API error" in str(exc_info.value)
+ 
+ 
+ @mock.patch("requests.Session.post")
+ def test_find_pr_by_branch_http_error(mock_post, github_client):
+     """Test handling of HTTP errors in find_pr_by_branch."""
+     mock_post.return_value.status_code = 403
+     mock_post.return_value.text = "Forbidden"
+ 
+     with pytest.raises(GitHubAPIError) as exc_info:
+         github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+     assert "GitHub API error: 403" in str(exc_info.value)
+ 
+ 
+ @mock.patch("requests.Session.post")
+ def test_find_pr_by_branch_empty_response(mock_post, github_client):
+     """Test finding PR by branch name with empty response."""
+     mock_post.return_value.status_code = 200
+     mock_post.return_value.json.return_value = {
+-        "data": {
+-            "repository": {
+-                "pullRequests": {
+-                    "nodes": []
+-                }
+-            }
+-        }
++        "data": {"repository": {"pullRequests": {"nodes": []}}}
+     }
+ 
+     pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+     assert pr_number is None
+ 
+EOF
+)

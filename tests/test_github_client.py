@@ -234,6 +234,186 @@ def test_find_pr_by_branch_no_match(mock_post, github_client):
 
 
 @mock.patch("requests.Session.post")
+def test_get_pr_review_comments_pr_not_found(mock_post, github_client):
+    """PR absence triggers a specific API error."""
+
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "data": {"repository": {"pullRequest": None}}
+    }
+
+    with pytest.raises(GitHubAPIError):
+        github_client.get_pr_review_comments("o", "r", 1)
+
+
+@mock.patch("requests.Session.post")
+def test_get_pr_review_comments_thread_pagination(mock_post, github_client):
+    """Thread pagination is followed using cursors."""
+
+    def make_response(data):
+        resp = mock.Mock()
+        resp.status_code = 200
+        resp.json.return_value = data
+        return resp
+
+    first_page = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": True, "endCursor": "t1"},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+
+    second_page = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+
+    mock_post.side_effect = [make_response(first_page), make_response(second_page)]
+
+    comments = github_client.get_pr_review_comments("o", "r", 1)
+    assert comments == []
+    assert mock_post.call_count == 2
+
+
+def test_get_all_thread_comments_paginates(monkeypatch, github_client):
+    """_get_all_thread_comments should request additional pages when needed."""
+
+    thread = {
+        "id": "T1",
+        "isResolved": False,
+        "comments": {
+            "nodes": [],
+            "pageInfo": {"hasNextPage": True, "endCursor": "C1"},
+        },
+    }
+
+    monkeypatch.setattr(
+        github_client,
+        "_get_additional_thread_comments",
+        lambda thread_id, cursor, include_outdated: [
+            {
+                "id": "c2",
+                "user": {"login": "u"},
+                "body": "b",
+                "created_at": "0",
+                "updated_at": "0",
+                "path": "p",
+                "diff_hunk": "h",
+                "line": 1,
+                "position": 1,
+                "html_url": "u",
+                "side": "RIGHT",
+            }
+        ],
+    )
+
+    comments = github_client._get_all_thread_comments(
+        thread, "o", "r", 1, include_outdated=True
+    )
+    assert len(comments) == 1
+
+
+@mock.patch("requests.Session.post")
+def test_get_additional_thread_comments_pagination_and_filter(mock_post, github_client):
+    """Additional comments pagination continues until complete and filters outdated."""
+
+    def make_response(data):
+        resp = mock.Mock()
+        resp.status_code = 200
+        resp.json.return_value = data
+        return resp
+
+    first = {
+        "data": {
+            "node": {
+                "comments": {
+                    "pageInfo": {"hasNextPage": True, "endCursor": "C2"},
+                    "nodes": [
+                        {
+                            "id": "c1",
+                            "author": {"login": "u"},
+                            "body": "old",
+                            "createdAt": "0",
+                            "updatedAt": "0",
+                            "path": "p",
+                            "diffHunk": "h",
+                            "position": None,
+                            "url": "u",
+                            "line": 1,
+                        }
+                    ],
+                }
+            }
+        }
+    }
+
+    second = {
+        "data": {
+            "node": {
+                "comments": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "id": "c2",
+                            "author": {"login": "u"},
+                            "body": "new",
+                            "createdAt": "0",
+                            "updatedAt": "0",
+                            "path": "p",
+                            "diffHunk": "h",
+                            "position": 1,
+                            "url": "u",
+                            "line": 1,
+                        }
+                    ],
+                }
+            }
+        }
+    }
+
+    mock_post.side_effect = [make_response(first), make_response(second)]
+
+    comments = github_client._get_additional_thread_comments("T1", "C1", False)
+    assert len(comments) == 1
+
+
+@mock.patch("requests.Session.post")
+def test_get_additional_thread_comments_http_error(mock_post, github_client):
+    """HTTP errors in pagination raise GitHubAPIError."""
+
+    mock_post.return_value.status_code = 500
+    mock_post.return_value.text = "boom"
+
+    with pytest.raises(GitHubAPIError):
+        github_client._get_additional_thread_comments("T1", "C1", True)
+
+
+@mock.patch("requests.Session.post")
+def test_get_additional_thread_comments_graphql_error(mock_post, github_client):
+    """GraphQL errors in pagination raise GitHubAPIError."""
+
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {"errors": "nope"}
+
+    with pytest.raises(GitHubAPIError):
+        github_client._get_additional_thread_comments("T1", "C1", True)
+
+
+@mock.patch("requests.Session.post")
 def test_find_pr_by_branch_closed_pr(mock_post, github_client):
     """Test finding PR by branch name ignores closed PRs."""
     mock_post.return_value.status_code = 200
@@ -313,13 +493,7 @@ def test_find_pr_by_branch_empty_response(mock_post, github_client):
     """Test finding PR by branch name with empty response."""
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {
-        "data": {
-            "repository": {
-                "pullRequests": {
-                    "nodes": []
-                }
-            }
-        }
+        "data": {"repository": {"pullRequests": {"nodes": []}}}
     }
 
     pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
