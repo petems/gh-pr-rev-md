@@ -1,9 +1,6 @@
 """Comprehensive tests for git_utils.py native git parsing functionality."""
 
-import os
 import pytest
-from pathlib import Path
-from unittest.mock import mock_open, patch
 
 from gh_pr_rev_md.git_utils import GitParsingError, GitRepository, RemoteInfo
 

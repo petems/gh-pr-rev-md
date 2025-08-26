@@ -24,6 +24,14 @@ docs-serve:
 docs-clean:
 	rm -rf $(DOCS_SRC)/_build $(API_DIR)
 
+.PHONY: lint
+
+lint:
+	uv run ruff check .
+
+lint-fix:
+	uv run ruff check . --fix
+
 # Run the CLI via uv (no need to activate PATH)
 run:
 	uv run gh-pr-rev-md $(ARGS)
