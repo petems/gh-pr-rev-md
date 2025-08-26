@@ -1,5 +1,10 @@
 # Docs generation with Sphinx
-.PHONY: docs docs-serve docs-clean install run activate
+.PHONY: install docs docs-serve docs-clean run activate
+
+# Create a local virtual environment and install the project (dev dependencies)
+install:
+	uv venv
+	uv pip install '.[dev]'
 
 # Use module invocations to avoid relying on shell entry points
 SPHINX_BUILD:=uv run python -m sphinx
@@ -18,11 +23,6 @@ docs-serve:
 
 docs-clean:
 	rm -rf $(DOCS_SRC)/_build $(API_DIR)
-
-# Create a local virtual environment and install the project (dev dependencies)
-install:
-	uv venv
-	uv pip install '.[dev]'
 
 # Run the CLI via uv (no need to activate PATH)
 run:

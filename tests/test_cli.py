@@ -1,6 +1,7 @@
 """Comprehensive tests for CLI functionality, focusing on file output features."""
 
 import pytest
+import subprocess
 from click.testing import CliRunner
 from unittest import mock
 from pathlib import Path
@@ -463,3 +464,249 @@ output_file: from_config.md
         assert result.exit_code == 0
         assert Path("from_cli.md").exists()
         assert not Path("from_config.md").exists()
+
+
+# --- Tests for hybrid git detection functionality ---
+
+
+def test_get_current_branch_pr_url_native_success():
+    """Test native git parsing successfully finding PR."""
+    with mock.patch("gh_pr_rev_md.cli.GitRepository") as mock_repo_class:
+        mock_repo = mock_repo_class.return_value
+        mock_repo.get_repository_info.return_value = ("github.com", "owner", "repo", "feature-branch")
+        
+        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+            mock_instance = mock.MagicMock()
+            mock_instance.find_pr_by_branch.return_value = 123
+            mock_client.return_value = mock_instance
+            
+            result = cli.get_current_branch_pr_url_native("fake-token")
+            assert result == "https://github.com/owner/repo/pull/123"
+
+
+def test_get_current_branch_pr_url_native_github_enterprise():
+    """Test native git parsing with GitHub Enterprise."""
+    with mock.patch("gh_pr_rev_md.cli.GitRepository") as mock_repo_class:
+        mock_repo = mock_repo_class.return_value
+        mock_repo.get_repository_info.return_value = ("github.enterprise.com", "company", "project", "main")
+        
+        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+            mock_instance = mock.MagicMock()
+            mock_instance.find_pr_by_branch.return_value = 456
+            mock_client.return_value = mock_instance
+            
+            result = cli.get_current_branch_pr_url_native("fake-token")
+            assert result == "https://github.enterprise.com/company/project/pull/456"
+
+
+def test_get_current_branch_pr_url_native_no_repo_info():
+    """Test native git parsing when repository info cannot be determined."""
+    with mock.patch("gh_pr_rev_md.cli.GitRepository") as mock_repo_class:
+        mock_repo = mock_repo_class.return_value
+        mock_repo.get_repository_info.return_value = None
+        
+        with pytest.raises(cli.GitParsingError, match="Unable to extract repository information"):
+            cli.get_current_branch_pr_url_native()
+
+
+def test_get_current_branch_pr_url_hybrid_fallback():
+    """Test hybrid approach falls back to subprocess when native parsing fails."""
+    # Mock native parsing to fail
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
+        
+        # Mock subprocess approach to succeed
+        with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_subprocess") as mock_subprocess:
+            mock_subprocess.return_value = "https://github.com/owner/repo/pull/999"
+            
+            result = cli.get_current_branch_pr_url()
+            assert result == "https://github.com/owner/repo/pull/999"
+            mock_native.assert_called_once()
+            mock_subprocess.assert_called_once()
+
+
+def test_get_current_branch_pr_url_hybrid_native_success():
+    """Test hybrid approach uses native parsing when it succeeds."""
+    # Mock native parsing to succeed
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.return_value = "https://github.com/owner/repo/pull/123"
+        
+        # Mock subprocess approach (should not be called)
+        with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_subprocess") as mock_subprocess:
+            result = cli.get_current_branch_pr_url()
+            assert result == "https://github.com/owner/repo/pull/123"
+            mock_native.assert_called_once()
+            mock_subprocess.assert_not_called()
+
+
+# --- Tests for "." argument functionality ---
+
+
+def test_cli_with_period_argument_success(runner, mock_github_client, mock_formatter):
+    """Test CLI with "." argument to use current branch PR."""
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url") as mock_get_pr_url:
+        mock_get_pr_url.return_value = "https://github.com/owner/repo/pull/456"
+        
+        result = runner.invoke(cli.main, ["."])
+        
+        assert result.exit_code == 0
+        mock_get_pr_url.assert_called_once()
+        mock_github_client.get_pr_review_comments.assert_called_once_with(
+            "owner", "repo", 456, False, False
+        )
+
+
+def test_cli_with_period_argument_error(runner):
+    """Test CLI with "." argument when git operations fail."""
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url") as mock_get_pr_url:
+        mock_get_pr_url.side_effect = cli.click.BadParameter("Not in a git repository")
+        
+        result = runner.invoke(cli.main, ["."])
+        
+        assert result.exit_code == 1
+        assert "Not in a git repository" in result.output
+
+
+def test_get_current_branch_pr_url_not_git_repo():
+    """Test get_current_branch_pr_url when not in a git repository."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = FileNotFoundError("git not found")
+        
+        with pytest.raises(cli.click.BadParameter) as exc_info:
+            cli.get_current_branch_pr_url()
+        assert "Git is not installed" in str(exc_info.value)
+
+
+def test_get_current_branch_pr_url_no_git_dir():
+    """Test get_current_branch_pr_url when not in a git repository."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.CalledProcessError(128, "git rev-parse")
+        
+        with pytest.raises(cli.click.BadParameter) as exc_info:
+            cli.get_current_branch_pr_url()
+        assert "Not in a git repository" in str(exc_info.value)
+
+
+def test_get_current_branch_pr_url_no_origin_remote():
+    """Test get_current_branch_pr_url when no origin remote is configured."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="main"),  # git branch succeeds
+            subprocess.CalledProcessError(1, "git remote get-url"),  # git remote get-url fails
+        ]
+        
+        with pytest.raises(cli.click.BadParameter) as exc_info:
+            cli.get_current_branch_pr_url()
+        assert "No 'origin' remote found" in str(exc_info.value)
+
+
+def test_get_current_branch_pr_url_invalid_remote_url():
+    """Test get_current_branch_pr_url with invalid remote URL."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="main"),  # git branch succeeds
+            mock.MagicMock(returncode=0, stdout="https://gitlab.com/owner/repo.git"),  # invalid remote
+        ]
+        
+        with pytest.raises(cli.click.BadParameter) as exc_info:
+            cli.get_current_branch_pr_url()
+        assert "Could not parse remote URL" in str(exc_info.value)
+
+
+def test_get_current_branch_pr_url_success_with_api():
+    """Test get_current_branch_pr_url successfully finding PR via GitHub API."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+        ]
+        
+        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+            mock_instance = mock.MagicMock()
+            mock_instance.find_pr_by_branch.return_value = 123
+            mock_client.return_value = mock_instance
+            
+            result = cli.get_current_branch_pr_url("fake-token")
+            assert result == "https://github.com/owner/repo/pull/123"
+
+
+def test_get_current_branch_pr_url_success_with_gh_cli():
+    """Test get_current_branch_pr_url successfully finding PR via GitHub CLI."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo/pull/456"),  # gh pr view succeeds
+        ]
+        
+        result = cli.get_current_branch_pr_url()
+        assert result == "https://github.com/owner/repo/pull/456"
+
+
+def test_get_current_branch_pr_url_no_pr_found():
+    """Test get_current_branch_pr_url when no PR is found for the branch."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+            subprocess.CalledProcessError(1, "gh pr view"),  # gh pr view fails
+        ]
+        
+        with pytest.raises(cli.click.BadParameter) as exc_info:
+            cli.get_current_branch_pr_url()
+        assert "No open pull request found" in str(exc_info.value)
+
+
+def test_get_current_branch_pr_url_detached_head():
+    """Test get_current_branch_pr_url when in detached HEAD state."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout=""),  # git branch returns empty (detached HEAD)
+        ]
+        
+        with pytest.raises(cli.click.BadParameter) as exc_info:
+            cli.get_current_branch_pr_url()
+        assert "Could not determine current branch" in str(exc_info.value)
+
+
+def test_get_current_branch_pr_url_ssh_remote():
+    """Test get_current_branch_pr_url with SSH remote URL."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+            mock.MagicMock(returncode=0, stdout="git@github.com:owner/repo.git"),  # SSH remote URL
+        ]
+        
+        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+            mock_instance = mock.MagicMock()
+            mock_instance.find_pr_by_branch.return_value = 789
+            mock_client.return_value = mock_instance
+            
+            result = cli.get_current_branch_pr_url("fake-token")
+            assert result == "https://github.com/owner/repo/pull/789"
+
+
+def test_get_current_branch_pr_url_api_fallback_to_gh_cli():
+    """Test get_current_branch_pr_url falls back to GitHub CLI when API fails."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0),  # git rev-parse succeeds
+            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo/pull/999"),  # gh pr view succeeds
+        ]
+        
+        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+            mock_instance = mock.MagicMock()
+            mock_instance.find_pr_by_branch.side_effect = github_client.GitHubAPIError("API failed")
+            mock_client.return_value = mock_instance
+            
+            result = cli.get_current_branch_pr_url("fake-token")
+            assert result == "https://github.com/owner/repo/pull/999"

@@ -1,6 +1,6 @@
 # gh-pr-rev-md
 
-CLI to fetch GitHub Pull Request review comments and render them as Markdown.
+`gh-pr-rev-md` is a Python based CLI to fetch GitHub Pull Request review comments and render them as Markdown.
 
 ## Features
 

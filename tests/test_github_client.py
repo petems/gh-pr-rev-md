@@ -175,3 +175,152 @@ def test_http_error(mock_post, github_client):
     with pytest.raises(GitHubAPIError) as exc_info:
         github_client.get_pr_review_comments("owner", "repo", 123)
     assert "GitHub API error: 500" in str(exc_info.value)
+
+
+# --- Tests for find_pr_by_branch method ---
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_success(mock_post, github_client):
+    """Test successful finding of PR by branch name."""
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": [
+                        {
+                            "number": 123,
+                            "headRefName": "feature-branch",
+                            "state": "OPEN",
+                        },
+                        {
+                            "number": 456,
+                            "headRefName": "another-branch",
+                            "state": "OPEN",
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert pr_number == 123
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_no_match(mock_post, github_client):
+    """Test finding PR by branch name when no matching PR exists."""
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": [
+                        {
+                            "number": 123,
+                            "headRefName": "different-branch",
+                            "state": "OPEN",
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert pr_number is None
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_closed_pr(mock_post, github_client):
+    """Test finding PR by branch name ignores closed PRs."""
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": [
+                        {
+                            "number": 123,
+                            "headRefName": "feature-branch",
+                            "state": "CLOSED",
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert pr_number is None
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_multiple_matches(mock_post, github_client):
+    """Test finding PR by branch name returns first match when multiple exist."""
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": [
+                        {
+                            "number": 123,
+                            "headRefName": "feature-branch",
+                            "state": "OPEN",
+                        },
+                        {
+                            "number": 456,
+                            "headRefName": "feature-branch",
+                            "state": "OPEN",
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert pr_number == 123  # Should return the first match
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_api_error(mock_post, github_client):
+    """Test handling of API errors in find_pr_by_branch."""
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {"errors": "Something went wrong"}
+
+    with pytest.raises(GitHubAPIError) as exc_info:
+        github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert "GitHub GraphQL API error" in str(exc_info.value)
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_http_error(mock_post, github_client):
+    """Test handling of HTTP errors in find_pr_by_branch."""
+    mock_post.return_value.status_code = 403
+    mock_post.return_value.text = "Forbidden"
+
+    with pytest.raises(GitHubAPIError) as exc_info:
+        github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert "GitHub API error: 403" in str(exc_info.value)
+
+
+@mock.patch("requests.Session.post")
+def test_find_pr_by_branch_empty_response(mock_post, github_client):
+    """Test finding PR by branch name with empty response."""
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": []
+                }
+            }
+        }
+    }
+
+    pr_number = github_client.find_pr_by_branch("owner", "repo", "feature-branch")
+    assert pr_number is None

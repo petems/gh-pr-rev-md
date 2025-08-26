@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import webbrowser
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
@@ -13,6 +14,7 @@ import yaml
 
 from .config import load_config
 from .formatter import format_comments_as_markdown
+from .git_utils import GitParsingError, GitRepository
 from .github_client import GitHubAPIError, GitHubClient
 
 GITHUB_TOKEN_URL = (
@@ -20,6 +22,191 @@ GITHUB_TOKEN_URL = (
     "&description=gh-pr-rev-md%20CLI%20"  # nosec B105
     "(read%20PR%20comments)"  # nosec B105
 )
+
+
+def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
+    """Get the PR URL for the current git branch.
+    
+    Returns the PR URL for the current branch, or raises an exception with a helpful message.
+    """
+    try:
+        # Check if we're in a git repository
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+    except subprocess.CalledProcessError:
+        raise click.BadParameter(
+            "Not in a git repository. Please run this command from within a git repository."
+        )
+    except FileNotFoundError:
+        raise click.BadParameter(
+            "Git is not installed or not available in PATH. Please install git and try again."
+        )
+
+    try:
+        # Get the current branch name
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        current_branch = result.stdout.strip()
+        
+        if not current_branch:
+            raise click.BadParameter(
+                "Could not determine current branch. Are you in a detached HEAD state?"
+            )
+    except subprocess.CalledProcessError as e:
+        raise click.BadParameter(f"Failed to get current branch: {e}")
+
+    try:
+        # Get the remote URL to determine owner/repo
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        remote_url = result.stdout.strip()
+        
+        # Handle both SSH and HTTPS URLs
+        if remote_url.startswith("git@"):
+            # SSH format: git@github.com:owner/repo.git
+            match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+        else:
+            # HTTPS format: https://github.com/owner/repo.git
+            match = re.match(r"https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+        
+        if not match:
+            raise click.BadParameter(
+                f"Could not parse remote URL: {remote_url}. Expected GitHub repository."
+            )
+        
+        owner, repo = match.groups()
+        
+    except subprocess.CalledProcessError:
+        raise click.BadParameter(
+            "No 'origin' remote found. Please ensure your repository has a GitHub remote configured."
+        )
+
+    # Try to find the PR for the current branch using GitHub API
+    if token:
+        try:
+            client = GitHubClient(token)
+            pr_number = client.find_pr_by_branch(owner, repo, current_branch)
+            if pr_number:
+                return f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+        except GitHubAPIError:
+            # API call failed, continue to fallback methods
+            pass
+
+    # Try to find the PR for the current branch using GitHub CLI
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        pr_url = result.stdout.strip()
+        if pr_url:
+            return pr_url
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # GitHub CLI not available or no PR found
+        pass
+
+    # If we get here, we couldn't find a PR for the current branch
+    raise click.BadParameter(
+        f"No open pull request found for branch '{current_branch}' in {owner}/{repo}. "
+        "Please ensure there is an open PR for the current branch."
+    )
+
+
+def get_current_branch_pr_url(token: Optional[str] = None) -> str:
+    """Get the PR URL for the current git branch using hybrid approach.
+    
+    Tries native git parsing first, falls back to subprocess calls if needed.
+    
+    Args:
+        token: Optional GitHub token for API calls
+        
+    Returns:
+        The PR URL for the current branch
+        
+    Raises:
+        click.BadParameter: If unable to determine PR URL
+    """
+    try:
+        # Try native git parsing first (fast path)
+        return get_current_branch_pr_url_native(token)
+    except GitParsingError:
+        # Fall back to subprocess approach (compatibility path)
+        return get_current_branch_pr_url_subprocess(token)
+
+
+def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
+    """Get the PR URL using native git parsing (no subprocess calls).
+    
+    Args:
+        token: Optional GitHub token for API calls
+        
+    Returns:
+        The PR URL for the current branch
+        
+    Raises:
+        GitParsingError: If git parsing fails
+        click.BadParameter: If unable to determine PR URL
+    """
+    try:
+        # Initialize git repository parser
+        repo = GitRepository()
+        
+        # Get repository information
+        repo_info = repo.get_repository_info()
+        if repo_info is None:
+            raise GitParsingError("Unable to extract repository information")
+        
+        host, owner, repo_name, branch = repo_info
+        
+        # Try to find PR using GitHub API if token provided
+        if token:
+            try:
+                client = GitHubClient(token)
+                pr_number = client.find_pr_by_branch(owner, repo_name, branch)
+                if pr_number:
+                    return f"https://{host}/{owner}/{repo_name}/pull/{pr_number}"
+            except GitHubAPIError:
+                # API call failed, continue to fallback methods
+                pass
+        
+        # Try to find PR using GitHub CLI
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            pr_url = result.stdout.strip()
+            if pr_url:
+                return pr_url
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # GitHub CLI not available or no PR found
+            pass
+        
+        # If we get here, we couldn't find a PR for the current branch
+        raise click.BadParameter(
+            f"No open pull request found for branch '{branch}' in {owner}/{repo_name}. "
+            "Please ensure there is an open PR for the current branch."
+        )
+        
+    except GitParsingError as e:
+        # Re-raise as GitParsingError so the hybrid function can catch it
+        raise GitParsingError(f"Native git parsing failed: {e}") from e
 
 
 def parse_pr_url(url: str) -> Tuple[str, str, int]:
@@ -192,6 +379,7 @@ def main(
     --output-file (custom filename).
 
     PR_URL should be in the format: https://github.com/owner/repo/pull/123
+    or "." to use the current git branch's PR.
     """
     # If requested, run interactive config setup and exit early
     if config_set:
@@ -225,6 +413,14 @@ def main(
     if not pr_url:
         click.echo("Error: PR_URL is required unless using --config-set.", err=True)
         sys.exit(1)
+
+    # Handle "." argument to use current branch's PR
+    if pr_url == ".":
+        try:
+            pr_url = get_current_branch_pr_url(token)
+        except click.BadParameter as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
 
     try:
         owner, repo, pr_number = parse_pr_url(pr_url)

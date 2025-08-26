@@ -143,3 +143,46 @@ class GitHubClient:
             "threadsCursor": threads_cursor,
         }
         return query, variables
+
+    def find_pr_by_branch(self, owner: str, repo: str, branch_name: str) -> Optional[int]:
+        """Find the PR number for a given branch name."""
+        query = """
+        query($owner: String!, $repo: String!, $branchName: String!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequests(first: 10, states: [OPEN], headRefName: $branchName) {
+              nodes {
+                number
+                headRefName
+                state
+              }
+            }
+          }
+        }
+        """
+        variables = {
+            "owner": owner,
+            "repo": repo,
+            "branchName": branch_name,
+        }
+
+        response = self.session.post(
+            self.graphql_url, json={"query": query, "variables": variables}, timeout=30
+        )
+
+        if response.status_code != 200:
+            raise GitHubAPIError(
+                f"GitHub API error: {response.status_code} - {response.text}"
+            )
+
+        data = response.json()
+        if "errors" in data:
+            raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
+
+        prs = data.get("data", {}).get("repository", {}).get("pullRequests", {}).get("nodes", [])
+        
+        # Return the first open PR for this branch
+        for pr in prs:
+            if pr.get("state") == "OPEN" and pr.get("headRefName") == branch_name:
+                return pr.get("number")
+        
+        return None
