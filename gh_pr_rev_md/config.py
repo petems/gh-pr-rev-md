@@ -79,7 +79,7 @@ def load_config() -> Dict[str, Any]:
     Later files override earlier ones. Only known keys are kept.
     """
     merged: Dict[str, Any] = {}
-    allowed_keys = {"token", "include_resolved", "output", "output_file"}
+    allowed_keys = {"token", "include_resolved", "include_outdated", "output", "output_file"}
 
     for path in _candidate_files():
         if path.is_file():

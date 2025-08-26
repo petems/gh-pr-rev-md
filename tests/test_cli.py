@@ -401,6 +401,7 @@ def test_config_applies_when_cli_missing(
     (app_dir / "config.yaml").write_text(
         """
 output_file: config_output.md
+include_outdated: true
 """,
         encoding="utf-8",
     )
@@ -418,7 +419,11 @@ output_file: config_output.md
 
         assert result.exit_code == 0
         assert Path("config_output.md").exists()
-        config_module  # reference to avoid unused import warnings
+        # Verify include_outdated from config reached client
+        mock_github_client.get_pr_review_comments.assert_called_once_with(
+            "owner", "repo", 123, True, False
+        )
+        assert config_module is not None
 
 
 def test_cli_overrides_config(
