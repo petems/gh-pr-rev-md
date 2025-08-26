@@ -350,7 +350,7 @@ class DefaultGroup(click.Group):
         super().__init__(*args, **kwargs)
         self.default_command = default_command
 
-    def resolve_command(self, ctx, args):  # type: ignore[override]
+    def resolve_command(self, ctx: click.Context, args: List[str]) -> Tuple[Optional[str], Optional[click.Command], List[str]]:
         # If no args, fall through to default command (so fetch handles validation)
         if (not args) and self.default_command:
             cmd = self.get_command(ctx, self.default_command)
