@@ -43,7 +43,9 @@ class GitHubClient:
                 owner, repo, pr_number, threads_cursor
             )
             response = self.session.post(
-                self.graphql_url, json={"query": query, "variables": variables}, timeout=30
+                self.graphql_url,
+                json={"query": query, "variables": variables},
+                timeout=30,
             )
 
             if response.status_code != 200:
@@ -87,14 +89,14 @@ class GitHubClient:
     ) -> List[Dict[str, Any]]:
         """Get all comments from a thread, handling pagination within the thread."""
         comments = []
-        
+
         # Get comments from the initial thread data
         thread_comments_data = thread.get("comments", {})
         for comment in thread_comments_data.get("nodes", []):
             if not include_outdated and self._is_outdated(comment):
                 continue
             comments.append(self._format_graphql_comment(comment))
-        
+
         # If there are more comments in this thread, paginate through them
         comments_page_info = thread_comments_data.get("pageInfo", {})
         if comments_page_info.get("hasNextPage"):
@@ -104,7 +106,7 @@ class GitHubClient:
                     thread_id, comments_page_info.get("endCursor"), include_outdated
                 )
                 comments.extend(additional_comments)
-        
+
         return comments
 
     def _get_additional_thread_comments(
@@ -112,7 +114,7 @@ class GitHubClient:
     ) -> List[Dict[str, Any]]:
         """Fetch additional comments for a specific thread using pagination."""
         comments = []
-        
+
         while comments_cursor:
             query = """
             query($threadId: ID!, $commentsCursor: String) {
@@ -142,40 +144,42 @@ class GitHubClient:
               }
             }
             """
-            
+
             variables = {
                 "threadId": thread_id,
                 "commentsCursor": comments_cursor,
             }
-            
+
             response = self.session.post(
-                self.graphql_url, json={"query": query, "variables": variables}, timeout=30
+                self.graphql_url,
+                json={"query": query, "variables": variables},
+                timeout=30,
             )
-            
+
             if response.status_code != 200:
                 raise GitHubAPIError(
                     f"GitHub API error: {response.status_code} - {response.text}"
                 )
-            
+
             data = response.json()
             if "errors" in data:
                 raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
-            
+
             thread_data = data.get("data", {}).get("node", {})
             thread_comments_data = thread_data.get("comments", {})
-            
+
             for comment in thread_comments_data.get("nodes", []):
                 if not include_outdated and self._is_outdated(comment):
                     continue
                 comments.append(self._format_graphql_comment(comment))
-            
+
             # Check if there are more pages
             comments_page_info = thread_comments_data.get("pageInfo", {})
             if comments_page_info.get("hasNextPage"):
                 comments_cursor = comments_page_info.get("endCursor")
             else:
                 break
-        
+
         return comments
 
     def _is_outdated(self, comment: Dict[str, Any]) -> bool:
@@ -251,7 +255,9 @@ class GitHubClient:
         }
         return query, variables
 
-    def find_pr_by_branch(self, owner: str, repo: str, branch_name: str) -> Optional[int]:
+    def find_pr_by_branch(
+        self, owner: str, repo: str, branch_name: str
+    ) -> Optional[int]:
         """Find the PR number for a given branch name."""
         query = """
         query($owner: String!, $repo: String!, $branchName: String!) {
@@ -285,11 +291,16 @@ class GitHubClient:
         if "errors" in data:
             raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
 
-        prs = data.get("data", {}).get("repository", {}).get("pullRequests", {}).get("nodes", [])
-        
+        prs = (
+            data.get("data", {})
+            .get("repository", {})
+            .get("pullRequests", {})
+            .get("nodes", [])
+        )
+
         # Return the first open PR for this branch
         for pr in prs:
             if pr.get("state") == "OPEN" and pr.get("headRefName") == branch_name:
                 return pr.get("number")
-        
+
         return None
