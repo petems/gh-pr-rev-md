@@ -67,7 +67,6 @@ class GitHubClient:
                 self._sleep_backoff(attempt)
         if last_resp is not None:
             return last_resp
-        assert last_exc is not None
         raise GitHubAPIError(f"Request failed after {self._max_retries} retries: {last_exc}") from last_exc
 
     def get_pr_review_comments(
