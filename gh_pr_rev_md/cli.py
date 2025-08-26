@@ -99,37 +99,8 @@ def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
             f"No '{remote_name}' remote found or it is misconfigured. Please ensure your repository has a valid GitHub remote."
         )
 
-    # Try to find the PR for the current branch using GitHub API
-    if token:
-        try:
-            client = GitHubClient(token)
-            pr_number = client.find_pr_by_branch(owner, repo, current_branch)
-            if pr_number:
-                return f"https://github.com/{owner}/{repo}/pull/{pr_number}"
-        except GitHubAPIError:
-            # API call failed, continue to fallback methods
-            pass
-
-    # Try to find the PR for the current branch using GitHub CLI
-    try:
-        result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded gh command with controlled args
-            ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        pr_url = result.stdout.strip()
-        if pr_url:
-            return pr_url
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # GitHub CLI not available or no PR found
-        pass
-
-    # If we get here, we couldn't find a PR for the current branch
-    raise click.BadParameter(
-        f"No open pull request found for branch '{current_branch}' in {owner}/{repo}. "
-        "Please ensure there is an open PR for the current branch."
-    )
+    # Use common resolver to find PR URL
+    return _resolve_pr_url(owner, repo, current_branch, "github.com", token)
 
 
 def get_current_branch_pr_url(token: Optional[str] = None) -> str:
@@ -178,37 +149,7 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
         
         host, owner, repo_name, branch = repo_info
         
-        # Try to find PR using GitHub API if token provided
-        if token:
-            try:
-                client = GitHubClient(token)
-                pr_number = client.find_pr_by_branch(owner, repo_name, branch)
-                if pr_number:
-                    return f"https://{host}/{owner}/{repo_name}/pull/{pr_number}"
-            except GitHubAPIError:
-                # API call failed, continue to fallback methods
-                pass
-        
-        # Try to find PR using GitHub CLI
-        try:
-            result = subprocess.run(  # nosec B603 B607  # Safe: hardcoded gh command with controlled args
-                ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            pr_url = result.stdout.strip()
-            if pr_url:
-                return pr_url
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # GitHub CLI not available or no PR found
-            pass
-        
-        # If we get here, we couldn't find a PR for the current branch
-        raise click.BadParameter(
-            f"No open pull request found for branch '{branch}' in {owner}/{repo_name}. "
-            "Please ensure there is an open PR for the current branch."
-        )
+        return _resolve_pr_url(owner, repo_name, branch, host, token)
         
     except GitParsingError as e:
         # Re-raise as GitParsingError so the hybrid function can catch it
@@ -226,6 +167,41 @@ def parse_pr_url(url: str) -> Tuple[str, str, int]:
 
     owner, repo, pr_number = match.groups()
     return owner, repo, int(pr_number)
+
+
+def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Optional[str]) -> str:
+    """Resolve PR URL by trying GitHub API first, then gh CLI; raise on failure."""
+    # Try to find PR using GitHub API if token provided
+    if token:
+        try:
+            client = GitHubClient(token)
+            pr_number = client.find_pr_by_branch(owner, repo, branch)
+            if pr_number:
+                return f"https://{host}/{owner}/{repo}/pull/{pr_number}"
+        except GitHubAPIError:
+            # API call failed, continue to fallback methods
+            pass
+
+    # Try to find the PR for the current branch using GitHub CLI
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        pr_url = result.stdout.strip()
+        if pr_url:
+            return pr_url
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # GitHub CLI not available or no PR found
+        pass
+
+    # If we get here, we couldn't find a PR for the current branch
+    raise click.BadParameter(
+        f"No open pull request found for branch '{branch}' in {owner}/{repo}. "
+        "Please ensure there is an open PR for the current branch."
+    )
 
 
 def generate_filename(owner: str, repo: str, pr_number: int) -> str:
