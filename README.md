@@ -54,6 +54,7 @@ Options:
 - `--include-outdated`: Include outdated review comments (on previous versions of the diff)
 - `--output` / `-o`: Save to auto-generated file name
 - `--output-file <path>`: Save to provided file path
+- `--create-dirs`: Create parent directories for `--output-file`
 
 URL format must be: `https://github.com/<owner>/<repo>/pull/<number>`
 
