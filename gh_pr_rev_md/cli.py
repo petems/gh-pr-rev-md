@@ -302,11 +302,19 @@ def _interactive_config_setup() -> None:
         default=include_outdated_default,
     )
 
+    output_default = (
+        bool(existing.get("output", False)) if isinstance(existing, dict) else False
+    )
+    output_to_file = click.confirm(
+        "Save output to a file by default?", default=output_default
+    )
+
     # Build config dictionary with allowed keys only
     new_config = {
         "token": token_value,
         "include_resolved": include_resolved,
         "include_outdated": include_outdated,
+        "output": output_to_file,
     }
 
     # Ensure directory exists and write YAML
@@ -320,45 +328,83 @@ def _interactive_config_setup() -> None:
     click.echo(f"Config written to: {config_path}")
 
 
-@click.command()
-@click.argument("pr_url", required=False)
+class DefaultGroup(click.Group):
+    """A click group that invokes a default command."""
+
+    def __init__(self, *args, **kwargs):
+        self.default_cmd_name = kwargs.pop("default_cmd_name", None)
+        super().__init__(*args, **kwargs)
+
+    def resolve_command(self, ctx, args):
+        if not args:
+            args = [self.default_cmd_name]
+
+        if args[0] in self.commands:
+            return super().resolve_command(ctx, args)
+
+        args.insert(0, self.default_cmd_name)
+        return super().resolve_command(ctx, args)
+
+
+
+@click.group(cls=DefaultGroup, default_cmd_name="fetch")
 @click.option(
     "--token",
     envvar="GITHUB_TOKEN",
-    help="GitHub token (can also be set via GITHUB_TOKEN env var)",
+    help="GitHub token (can also be set via GITHUB_TOKEN env var).",
 )
 @click.option(
     "--config-set",
     is_flag=True,
     default=False,
-    help="Interactively create/update XDG config then exit",
+    help="Interactively create/update XDG config then exit.",
 )
+@click.pass_context
+def main(ctx: click.Context, token: Optional[str], config_set: bool):
+    """A tool to fetch and format GitHub PR review comments."""
+    if config_set:
+        try:
+            _interactive_config_setup()
+        except (click.Abort, OSError, yaml.YAMLError) as e:
+            click.echo(f"Error during config setup: {e}", err=True)
+            sys.exit(1)
+        sys.exit(0)
+
+    config = load_config()
+    resolved_token = token if token is not None else config.get("token")
+
+    ctx.ensure_object(dict)
+    ctx.obj["token"] = resolved_token
+
+
+@main.command("fetch")
+@click.argument("pr_url", required=True)
 @click.option(
     "--include-resolved",
     is_flag=True,
     default=None,
-    help="Include resolved review comments in the output",
+    help="Include resolved review comments in the output.",
 )
 @click.option(
     "--include-outdated",
     is_flag=True,
     default=None,
-    help="Include outdated review comments in the output",
+    help="Include outdated review comments in the output.",
 )
 @click.option(
     "--output",
     "-o",
     is_flag=True,
     default=None,
-    help="Save output to file with auto-generated filename",
+    help="Save output to file with auto-generated filename.",
 )
 @click.option(
-    "--output-file", type=str, default=None, help="Save output to specified file"
+    "--output-file", type=str, default=None, help="Save output to specified file."
 )
-def main(
-    pr_url: Optional[str],
-    token: Optional[str],
-    config_set: bool,
+@click.pass_context
+def fetch(
+    ctx: click.Context,
+    pr_url: str,
     include_resolved: Optional[bool],
     include_outdated: Optional[bool],
     output: Optional[bool],
@@ -366,29 +412,13 @@ def main(
 ):
     """Fetch GitHub PR review comments and output as markdown.
 
-    By default, outdated and resolved review comments are excluded.
-    Use --include-outdated and --include-resolved to include them.
-
-    Output can be saved to file using --output (auto-generated filename) or
-    --output-file (custom filename).
-
     PR_URL should be in the format: https://github.com/owner/repo/pull/123
     or "." to use the current git branch's PR.
     """
-    # If requested, run interactive config setup and exit early
-    if config_set:
-        try:
-            _interactive_config_setup()
-            sys.exit(0)
-        except (click.Abort, OSError, yaml.YAMLError) as e:
-            click.echo(f"Error during config setup: {e}", err=True)
-            sys.exit(1)
-
-    # Load XDG YAML config and merge with CLI/env values (CLI/env > config > defaults)
     config = load_config()
+    token = ctx.obj.get("token")
 
-    # Resolve final values from CLI/env, config file, then defaults
-    token = token if token is not None else config.get("token")
+    # Resolve flags, giving precedence to CLI options over config file
     include_resolved = (
         include_resolved
         if include_resolved is not None
@@ -408,11 +438,6 @@ def main(
             err=True,
         )
 
-    if not pr_url:
-        click.echo("Error: PR_URL is required unless using --config-set.", err=True)
-        sys.exit(1)
-
-    # Handle "." argument to use current branch's PR
     if pr_url == ".":
         try:
             pr_url = get_current_branch_pr_url(token)
@@ -427,14 +452,12 @@ def main(
         sys.exit(1)
 
     client = GitHubClient(token)
-
     try:
         comments = client.get_pr_review_comments(
             owner, repo, pr_number, include_outdated, include_resolved
         )
         markdown_output = format_comments_as_markdown(comments, owner, repo, pr_number)
 
-        # Handle file output
         if output_file or output:
             filename = (
                 output_file
@@ -442,7 +465,6 @@ def main(
                 else generate_filename(owner, repo, pr_number)
             )
             file_path = Path(filename)
-
             try:
                 file_path.write_text(markdown_output, encoding="utf-8")
                 click.echo(f"Output saved to: {file_path.absolute()}")
@@ -451,11 +473,71 @@ def main(
                 sys.exit(1)
         else:
             click.echo(markdown_output)
+
     except GitHubAPIError as e:
         click.echo(f"Error fetching data from GitHub: {e}", err=True)
         sys.exit(1)
     except Exception as e:
         click.echo(f"An unexpected error occurred: {e}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def config():
+    """Manage configuration."""
+    pass
+
+
+@config.command("get")
+@click.option(
+    "--show-token",
+    is_flag=True,
+    default=False,
+    help="Show the GitHub token in plain text.",
+)
+def get_config(show_token: bool):
+    """Display the current configuration."""
+    config_data = load_config()
+
+    if config_data.get("token") and not show_token:
+        config_data["token"] = "********"
+
+    if not config_data:
+        click.echo("No configuration found.")
+        return
+
+    output = yaml.dump(config_data, default_flow_style=False, sort_keys=False)
+    click.echo(output)
+
+
+@config.command("check")
+@click.pass_context
+def check_config(ctx: click.Context):
+    """Validate the configuration."""
+    click.echo("Checking configuration...")
+    token = ctx.obj.get("token")
+
+    if not token:
+        click.secho("FAILED: GitHub token is not configured.", fg="red")
+        click.echo(
+            "Please configure it via GITHUB_TOKEN environment variable, a config file, or the --token option."
+        )
+        click.echo("You can also run `gh-pr-rev-md --config-set` for interactive setup.")
+        sys.exit(1)
+
+    click.secho("✓ Token is configured.", fg="green")
+
+    click.echo("Validating token with GitHub API...")
+    try:
+        client = GitHubClient(token)
+        user = client.get_authenticated_user()
+        click.secho(f"✓ Token is valid and belongs to user '{user}'.", fg="green")
+        click.secho("Configuration is valid.", fg="green")
+    except GitHubAPIError as e:
+        click.secho(
+            "FAILED: Token is invalid or has insufficient permissions.", fg="red"
+        )
+        click.secho(f"GitHub API error: {e}", fg="red")
         sys.exit(1)
 
 

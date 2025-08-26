@@ -251,6 +251,33 @@ class GitHubClient:
         }
         return query, variables
 
+    def get_authenticated_user(self) -> str:
+        """Get the login of the authenticated user.
+
+        Returns:
+            The login of the authenticated user.
+
+        Raises:
+            GitHubAPIError: If the API call fails or the response is invalid.
+        """
+        query = "{ viewer { login } }"
+        try:
+            response = self.session.post(
+                self.graphql_url, json={"query": query}, timeout=30
+            )
+            if response.status_code != 200:
+                raise GitHubAPIError(
+                    f"GitHub API error: {response.status_code} - {response.text}"
+                )
+            data = response.json()
+            if "errors" in data:
+                raise GitHubAPIError(f"GitHub GraphQL API error: {data['errors']}")
+            return data["data"]["viewer"]["login"]
+        except (requests.RequestException, KeyError, TypeError) as exc:
+            raise GitHubAPIError(
+                f"Failed to get authenticated user: {exc}"
+            ) from exc
+
     def find_pr_by_branch(self, owner: str, repo: str, branch_name: str) -> Optional[int]:
         """Find the PR number for a given branch name."""
         query = """
