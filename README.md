@@ -11,17 +11,35 @@
 - Can print to stdout or write to a timestamped file
 - Configurable via CLI, env, and XDG config file
 
+## Try it out (without installing)
+
+```bash
+uvx gh-pr-rev-md https://github.com/octocat/Hello-World/pull/42
+```
+
+Run the tool directly without installation. `uvx` automatically creates a temporary environment, installs the tool, runs it, and cleans up.
+
 ## Installation
 
 Requirements: Python >= 3.9
 
-Recommended with uv (fast installer/runner):
+### Recommended: Install as a global tool
+
+```bash
+uv tool install gh-pr-rev-md
+```
+
+This installs `gh-pr-rev-md` into a dedicated environment and adds it to your PATH.
+
+### Alternative: Install into a virtual environment
 
 ```bash
 uv pip install gh-pr-rev-md
 ```
 
-Alternative (pipx):
+### Other installation methods
+
+With pipx:
 
 ```bash
 pipx install gh-pr-rev-md
@@ -63,6 +81,12 @@ Print to stdout:
 
 ```bash
 gh-pr-rev-md https://github.com/octocat/Hello-World/pull/42
+```
+
+Run without installing:
+
+```bash
+uvx gh-pr-rev-md https://github.com/octocat/Hello-World/pull/42
 ```
 
 Include resolved comments and save to a generated file:
@@ -170,9 +194,6 @@ make activate
 
 # Alternatively, call the binary directly
 .venv/bin/gh-pr-rev-md https://github.com/owner/repo/pull/123
-
-# Or run without installing (one-off)
-uvx gh-pr-rev-md https://github.com/owner/repo/pull/123
 ```
 
 ### Project structure
