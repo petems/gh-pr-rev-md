@@ -51,17 +51,15 @@ class GitHubClient:
         return status_code == 429 or 500 <= status_code < 600
 
     def _post_graphql(self, payload: Dict[str, Any]) -> requests.Response:
-        last_exc: Optional[Exception] = None
-        last_status: Optional[int] = None
+        last_exc: Optional[requests.RequestException] = None
         last_resp: Optional[requests.Response] = None
         for attempt in range(1, self._max_retries + 1):
             try:
                 resp = self.session.post(self.graphql_url, json=payload, timeout=30)
                 last_resp = resp
-                last_status = resp.status_code
-                if not self._should_retry(last_status, None):
+                if not self._should_retry(resp.status_code, None):
                     return resp
-            except Exception as e:
+            except requests.RequestException as e:
                 last_exc = e
                 if not self._should_retry(None, e):
                     raise
@@ -70,7 +68,7 @@ class GitHubClient:
         if last_resp is not None:
             return last_resp
         assert last_exc is not None
-        raise last_exc
+        raise GitHubAPIError(f"Request failed after {self._max_retries} retries: {last_exc}") from last_exc
 
     def get_pr_review_comments(
         self,
