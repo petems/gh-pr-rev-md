@@ -320,7 +320,46 @@ def _interactive_config_setup() -> None:
     click.echo(f"Config written to: {config_path}")
 
 
-@click.command()
+from . import __version__
+
+
+def get_git_ref():
+    """Get the git ref if in a git repository."""
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode("utf-8")
+            .strip()
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+@click.group()
+@click.version_option(
+    __version__,
+    "--version",
+    "-v",
+    prog_name="gh-pr-rev-md",
+    message="%(prog)s version %(version)s",
+)
+def main():
+    """gh-pr-rev-md - A CLI tool to fetch GitHub PR review comments and output as markdown."""
+    pass
+
+
+@main.command()
+def version():
+    """Show the version and exit."""
+    git_ref = get_git_ref()
+    click.echo(f"Version: {__version__}")
+    if git_ref:
+        click.echo(f"Git Ref: {git_ref}")
+
+
+@main.command(name="fetch")
 @click.argument("pr_url", required=False)
 @click.option(
     "--token",
@@ -355,7 +394,7 @@ def _interactive_config_setup() -> None:
 @click.option(
     "--output-file", type=str, default=None, help="Save output to specified file"
 )
-def main(
+def fetch(
     pr_url: Optional[str],
     token: Optional[str],
     config_set: bool,

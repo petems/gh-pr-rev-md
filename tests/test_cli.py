@@ -147,6 +147,7 @@ def test_main_output_flag_auto_filename(
         result = runner.invoke(
             cli.main,
             [
+                "fetch",
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -174,6 +175,7 @@ def test_main_output_file_flag_custom_filename(
         result = runner.invoke(
             cli.main,
             [
+                "fetch",
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -203,6 +205,7 @@ def test_main_output_file_precedence(
         result = runner.invoke(
             cli.main,
             [
+                "fetch",
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -225,7 +228,7 @@ def test_main_no_output_flags_stdout(runner, mock_github_client, mock_formatter)
     with runner.isolated_filesystem():
         result = runner.invoke(
             cli.main,
-            ["https://github.com/owner/repo/pull/123", "--token", "test_token"],
+            ["fetch", "https://github.com/owner/repo/pull/123", "--token", "test_token"],
         )
 
         assert result.exit_code == 0
@@ -247,6 +250,7 @@ def test_main_file_write_permission_error(runner, mock_github_client, mock_forma
         result = runner.invoke(
             cli.main,
             [
+                "fetch",
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -268,6 +272,7 @@ def test_main_file_write_nested_directory(runner, mock_github_client, mock_forma
         result = runner.invoke(
             cli.main,
             [
+                "fetch",
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -289,6 +294,7 @@ def test_main_include_flags_integration(
         result = runner.invoke(
             cli.main,
             [
+                "fetch",
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -314,6 +320,7 @@ def test_main_utf8_encoding(runner, mock_github_client, mock_formatter):
         result = runner.invoke(
             cli.main,
             [
+                'fetch',
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -347,7 +354,7 @@ def test_main_no_token_warning_allows_run(runner, monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr("gh_pr_rev_md.cli.load_config", lambda: {})
 
-    result = runner.invoke(cli.main, ["https://github.com/owner/repo/pull/123"])
+    result = runner.invoke(cli.main, ['fetch', 'https://github.com/owner/repo/pull/123'])
 
     assert result.exit_code == 0
     # In Click testing, stderr is often captured along with stdout in result.output
@@ -356,7 +363,7 @@ def test_main_no_token_warning_allows_run(runner, monkeypatch):
 
 def test_main_invalid_url_error(runner):
     """Test CLI exits with error for invalid PR URL."""
-    result = runner.invoke(cli.main, ["invalid-url", "--token", "test_token"])
+    result = runner.invoke(cli.main, ['fetch', 'invalid-url', '--token', 'test_token'])
 
     assert result.exit_code == 1
     assert "Invalid GitHub PR URL format" in result.output
@@ -369,7 +376,7 @@ def test_main_github_api_error(runner, mock_github_client):
     )
 
     result = runner.invoke(
-        cli.main, ["https://github.com/owner/repo/pull/123", "--token", "test_token"]
+        cli.main, ['fetch', 'https://github.com/owner/repo/pull/123', '--token', 'test_token']
     )
 
     assert result.exit_code == 1
@@ -381,7 +388,7 @@ def test_main_github_api_generic_error(runner, mock_github_client):
     mock_github_client.get_pr_review_comments.side_effect = Exception("Network timeout")
 
     result = runner.invoke(
-        cli.main, ["https://github.com/owner/repo/pull/123", "--token", "test_token"]
+        cli.main, ['fetch', 'https://github.com/owner/repo/pull/123', '--token', 'test_token']
     )
 
     assert result.exit_code == 1
@@ -394,6 +401,7 @@ def test_main_absolute_path_reporting(runner, mock_github_client, mock_formatter
         result = runner.invoke(
             cli.main,
             [
+                'fetch',
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "test_token",
@@ -428,6 +436,7 @@ output_file: config_output.md
         result = runner.invoke(
             cli.main,
             [
+                'fetch',
                 "https://github.com/owner/repo/pull/123",
             ],
         )
@@ -457,6 +466,7 @@ output_file: from_config.md
         result = runner.invoke(
             cli.main,
             [
+                'fetch',
                 "https://github.com/owner/repo/pull/123",
                 "--token",
                 "cli_token",
@@ -552,7 +562,7 @@ def test_cli_with_period_argument_success(runner, mock_github_client, mock_forma
     with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url") as mock_get_pr_url:
         mock_get_pr_url.return_value = "https://github.com/owner/repo/pull/456"
         
-        result = runner.invoke(cli.main, ["."])
+        result = runner.invoke(cli.main, ['fetch', '.'])
         
         assert result.exit_code == 0
         mock_get_pr_url.assert_called_once()
@@ -566,7 +576,7 @@ def test_cli_with_period_argument_error(runner):
     with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url") as mock_get_pr_url:
         mock_get_pr_url.side_effect = cli.click.BadParameter("Not in a git repository")
         
-        result = runner.invoke(cli.main, ["."])
+        result = runner.invoke(cli.main, ['fetch', '.'])
         
         assert result.exit_code == 1
         assert "Not in a git repository" in result.output
@@ -770,3 +780,33 @@ def test_get_current_branch_pr_url_api_fallback_to_gh_cli():
                 
                 result = cli.get_current_branch_pr_url("fake-token")
                 assert result == "https://github.com/owner/repo/pull/999"
+
+
+# --- Tests for version command ---
+
+
+def test_version_command(runner):
+    """Test the version command."""
+    with mock.patch('gh_pr_rev_md.cli.get_git_ref') as mock_get_git_ref:
+        mock_get_git_ref.return_value = 'abcdef1'
+        result = runner.invoke(cli.main, ['version'])
+        assert result.exit_code == 0
+        assert 'Version: 0.1.0' in result.output
+        assert 'Git Ref: abcdef1' in result.output
+
+
+def test_version_command_no_git_ref(runner):
+    """Test the version command when no git ref is found."""
+    with mock.patch('gh_pr_rev_md.cli.get_git_ref') as mock_get_git_ref:
+        mock_get_git_ref.return_value = None
+        result = runner.invoke(cli.main, ['version'])
+        assert result.exit_code == 0
+        assert 'Version: 0.1.0' in result.output
+        assert 'Git Ref' not in result.output
+
+
+def test_version_option(runner):
+    """Test the --version option."""
+    result = runner.invoke(cli.main, ['--version'])
+    assert result.exit_code == 0
+    assert 'gh-pr-rev-md version 0.1.0' in result.output
