@@ -185,7 +185,7 @@ def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Option
     # Try to find the PR for the current branch using GitHub CLI
     try:
         result = subprocess.run(  # nosec B603 B607
-            ["gh", "pr", "view", "--json", "url", "--jq", ".url"],
+            ["gh", "pr", "view", branch, "--repo", f"{owner}/{repo}", "--json", "url", "--jq", ".url"],
             capture_output=True,
             text=True,
             check=True,
