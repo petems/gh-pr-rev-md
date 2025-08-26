@@ -66,7 +66,7 @@ select = [
     "B",  # flake8-bugbear
     "S",  # flake8-bandit
 ]
-ignore = []
+ignore = ["S101"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
