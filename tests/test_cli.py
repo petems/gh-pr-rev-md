@@ -827,23 +827,22 @@ def test_get_current_branch_pr_url_subprocess_branch_error(monkeypatch):
 def test_get_current_branch_pr_url_subprocess_no_pr(monkeypatch):
     """When no PR is found, a helpful error is raised."""
 
-    responses = [
-        subprocess.CompletedProcess(["git"], 0, stdout=".git\n"),
-        subprocess.CompletedProcess(["git"], 0, stdout="feature\n"),
-        subprocess.CompletedProcess(["git"], 0, stdout="origin\n"),
-        subprocess.CompletedProcess(
-            ["git"], 0, stdout="https://github.com/owner/repo.git\n"
-        ),
-        subprocess.CalledProcessError(1, ["gh"], "no pr"),
-    ]
-
     def run_side_effect(
         cmd, capture_output=True, text=True, check=True
     ):  # pragma: no cover - type annotated
-        result = responses.pop(0)
-        if isinstance(result, subprocess.CalledProcessError):
-            raise result
-        return result
+        if cmd == ["git", "rev-parse", "--git-dir"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=".git\n")
+        if cmd == ["git", "branch", "--show-current"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="feature\n")
+        if cmd == ["git", "config", "branch.feature.remote"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="origin\n")
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="https://github.com/owner/repo.git\n"
+            )
+        if cmd == ["gh", "pr", "view", "--json", "url", "--jq", ".url"]:
+            raise subprocess.CalledProcessError(1, cmd, "no pr")
+        raise ValueError(f"Unexpected subprocess call: {cmd}")
 
     monkeypatch.setattr(cli.subprocess, "run", run_side_effect)
 
