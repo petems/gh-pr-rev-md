@@ -79,6 +79,23 @@ class GitRepository:
         
         raise GitParsingError("Not in a git repository")
     
+    def _get_common_git_dir(self) -> Optional[Path]:
+        """Get the common git directory for worktrees.
+        
+        Returns:
+            Path to common git directory if this is a worktree, None otherwise
+        """
+        commondir_file = self.git_dir / "commondir"
+        if commondir_file.exists():
+            try:
+                commondir_content = commondir_file.read_text(encoding="utf-8", errors="strict").strip()
+                if commondir_content:
+                    common_path = self.git_dir / commondir_content
+                    return common_path.resolve()
+            except (OSError, UnicodeDecodeError):
+                pass
+        return None
+    
     def get_current_branch(self) -> Optional[str]:
         """Get the current branch name.
         
@@ -260,3 +277,138 @@ class GitRepository:
             
         except GitParsingError:
             return None
+    
+    def get_current_commit_hash(self) -> Optional[str]:
+        """Get the current commit hash.
+        
+        Returns:
+            Short commit hash (7 characters) if available, None otherwise
+            
+        Raises:
+            GitParsingError: If HEAD file cannot be read or parsed
+        """
+        head_file = self.git_dir / "HEAD"
+        
+        try:
+            head_content = head_file.read_text(encoding="utf-8", errors="strict").strip()
+        except (OSError, UnicodeDecodeError) as e:
+            raise GitParsingError(f"Failed to read HEAD file: {e}") from e
+        
+        if head_content.startswith("ref: "):
+            # Symbolic ref: need to resolve to actual commit hash
+            ref_path = head_content[5:]  # Remove "ref: " prefix
+            ref_file = self.git_dir / ref_path
+            
+            # For worktrees, refs might be in the common git directory
+            if not ref_file.exists():
+                common_git_dir = self._get_common_git_dir()
+                if common_git_dir:
+                    ref_file = common_git_dir / ref_path
+            
+            try:
+                if ref_file.exists():
+                    commit_hash = ref_file.read_text(encoding="utf-8", errors="strict").strip()
+                    return commit_hash[:7] if len(commit_hash) >= 7 else commit_hash
+            except (OSError, UnicodeDecodeError) as e:
+                raise GitParsingError(f"Failed to read ref file {ref_file}: {e}") from e
+        else:
+            # Direct commit hash
+            return head_content[:7] if len(head_content) >= 7 else head_content
+        
+        return None
+    
+    def get_current_tag(self) -> Optional[str]:
+        """Get the current git tag if HEAD is pointing to a tagged commit.
+        
+        Returns:
+            Tag name if current commit has a tag, None otherwise
+            
+        Raises:
+            GitParsingError: If unable to read git refs or HEAD
+        """
+        try:
+            # Get the full commit hash for comparison
+            head_file = self.git_dir / "HEAD"
+            head_content = head_file.read_text(encoding="utf-8", errors="strict").strip()
+            
+            if head_content.startswith("ref: "):
+                ref_path = head_content[5:]
+                ref_file = self.git_dir / ref_path
+                
+                # For worktrees, refs might be in the common git directory
+                if not ref_file.exists():
+                    common_git_dir = self._get_common_git_dir()
+                    if common_git_dir:
+                        ref_file = common_git_dir / ref_path
+                
+                if ref_file.exists():
+                    full_commit = ref_file.read_text(encoding="utf-8", errors="strict").strip()
+                else:
+                    return None
+            else:
+                full_commit = head_content
+                
+        except (OSError, UnicodeDecodeError) as e:
+            raise GitParsingError(f"Failed to get current commit: {e}") from e
+        
+        # Check all tags to see if any point to the current commit
+        # First try the worktree's tags directory
+        tags_dir = self.git_dir / "refs" / "tags"
+        
+        # If tags don't exist in worktree, try common git directory
+        if not tags_dir.exists():
+            common_git_dir = self._get_common_git_dir()
+            if common_git_dir:
+                tags_dir = common_git_dir / "refs" / "tags"
+        
+        if not tags_dir.exists():
+            return None
+        
+        try:
+            for tag_file in tags_dir.rglob("*"):
+                if tag_file.is_file():
+                    try:
+                        tag_commit = tag_file.read_text(encoding="utf-8", errors="strict").strip()
+                        if tag_commit == full_commit:
+                            # Get tag name (relative to tags directory)
+                            tag_name = str(tag_file.relative_to(tags_dir))
+                            return tag_name
+                    except (OSError, UnicodeDecodeError):
+                        # Skip this tag if we can't read it
+                        continue
+        except (OSError,) as e:
+            raise GitParsingError(f"Failed to read tags directory: {e}") from e
+        
+        return None
+    
+    def get_version_info(self) -> str:
+        """Get version information combining tag, commit, and branch data.
+        
+        Returns:
+            Formatted version string:
+            - "v1.2.3" if on a tagged commit
+            - "abc123f (branch-name)" if on untagged commit with branch
+            - "abc123f" if on untagged commit without branch (detached HEAD)
+            - "unknown" if unable to determine any version info
+        """
+        try:
+            # Try to get tag first (highest priority)
+            tag = self.get_current_tag()
+            if tag:
+                return tag
+            
+            # Get commit hash and branch info
+            commit_hash = self.get_current_commit_hash()
+            branch = self.get_current_branch()
+            
+            if commit_hash:
+                if branch:
+                    return f"{commit_hash} ({branch})"
+                else:
+                    return commit_hash
+            
+            # Fallback if we can't determine anything
+            return "unknown"
+            
+        except GitParsingError:
+            return "unknown"

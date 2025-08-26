@@ -20,6 +20,40 @@ from .github_client import GitHubAPIError, GitHubClient
 GITHUB_TOKEN_URL = "https://github.com/settings/tokens/new?scopes=repo,read:org&description=gh-pr-rev-md%20CLI%20(read%20PR%20comments)"  # nosec B105  # URL for token creation, not a password
 
 
+def get_version() -> str:
+    """Get version information for the application.
+    
+    Returns version information in priority order:
+    1. Git tag if on a tagged commit
+    2. Git commit hash + branch if in git repository
+    3. Package version from pyproject.toml as fallback
+    
+    Returns:
+        Formatted version string
+    """
+    try:
+        # Try git-based version detection first
+        repo = GitRepository()
+        git_version = repo.get_version_info()
+        
+        if git_version != "unknown":
+            return git_version
+            
+    except GitParsingError:
+        # Not in a git repository or git parsing failed
+        pass
+    
+    # Fallback to package version
+    try:
+        # Try to get version from package metadata
+        import importlib.metadata
+        package_version = importlib.metadata.version("gh-pr-rev-md")
+        return f"{package_version} (from package)"
+    except (ImportError, importlib.metadata.PackageNotFoundError):
+        # Final fallback if package metadata not available
+        return "0.1.0 (from package)"
+
+
 def get_current_branch_pr_url_subprocess(token: Optional[str] = None) -> str:
     """Get the PR URL for the current git branch.
     
@@ -354,6 +388,14 @@ def _interactive_config_setup() -> None:
 )
 @click.option(
     "--output-file", type=str, default=None, help="Save output to specified file"
+)
+@click.option(
+    "--version",
+    is_flag=True,
+    expose_value=False,
+    is_eager=True,
+    help="Show version information and exit",
+    callback=lambda ctx, param, value: ctx.exit(click.echo(f"gh-pr-rev-md, version {get_version()}")) if value else None,
 )
 def main(
     pr_url: Optional[str],
