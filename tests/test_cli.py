@@ -315,6 +315,15 @@ def test_main_utf8_encoding(runner, mock_github_client, mock_formatter):
 # --- Tests for error conditions ---
 
 
+def test_main_no_pr_url_shows_help(runner):
+    """Test that CLI shows help and exits cleanly when no PR_URL is given."""
+    result = runner.invoke(cli.main, [])
+
+    assert result.exit_code == 0
+    assert "Usage: main [OPTIONS] [PR_URL]" in result.output
+    assert "--help" in result.output
+
+
 def test_main_no_token_warning_allows_run(runner, monkeypatch):
     """When no token is provided, CLI warns but proceeds (unauthenticated)."""
     # Prevent real network calls by mocking GitHubClient.get_pr_review_comments

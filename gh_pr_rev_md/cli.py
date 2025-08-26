@@ -385,8 +385,9 @@ def main(
         )
 
     if not pr_url:
-        click.echo("Error: PR_URL is required unless using --config-set.", err=True)
-        sys.exit(1)
+        ctx = click.get_current_context()
+        click.echo(ctx.get_help())
+        ctx.exit()
 
     # Handle "." argument to use current branch's PR
     if pr_url == ".":

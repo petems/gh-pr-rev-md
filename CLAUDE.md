@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important: Always Use uv
+
+**ALWAYS use `uv run` for Python commands instead of bare `python` or `python3`.**
+This ensures consistent environment and dependency management.
+
 ## Project Overview
 
 This is `gh-pr-rev-md`, a Python CLI tool that fetches GitHub pull request review comments and formats them as markdown output. The tool uses the GitHub API to retrieve PR review comments and presents them in a structured markdown format for easy reading.
@@ -25,7 +30,7 @@ uv pip install .
 
 **Run the CLI during development:**
 ```bash
-python -m gh_pr_rev_md.cli <pr_url>
+uv run python -m gh_pr_rev_md.cli <pr_url>
 ```
 
 **Authentication:**
@@ -34,16 +39,16 @@ Set `GITHUB_TOKEN` environment variable or use `--token` flag. Token needs repos
 **Linting, Testing, and Security:**
 ```bash
 # Run linting (auto-fix issues)
-ruff check --fix .
+uv run ruff check --fix .
 
 # Run security scanning
 uv run bandit -r gh_pr_rev_md -f txt
 
 # Run tests
-python -m pytest -q
+uv run python -m pytest -q
 
 # Run tests with coverage
-python -m pytest -q --cov=gh_pr_rev_md --cov-report=term
+uv run python -m pytest -q --cov=gh_pr_rev_md --cov-report=term
 ```
 
 ## Key Implementation Details
