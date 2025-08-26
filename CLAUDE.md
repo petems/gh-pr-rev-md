@@ -39,7 +39,7 @@ Set `GITHUB_TOKEN` environment variable or use `--token` flag. Token needs repos
 **Linting, Testing, and Security:**
 ```bash
 # Run linting (auto-fix issues)
-ruff check --fix .
+uv run ruff check --fix .
 
 # Run security scanning
 uv run bandit -r gh_pr_rev_md -f txt
