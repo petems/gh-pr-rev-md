@@ -1006,10 +1006,10 @@ def test_main_config_set_error(runner, monkeypatch):
     assert "Error during config setup" in result.output
 
 
-def test_main_missing_pr_url_error(runner, monkeypatch):
-    """Running without PR URL should fail fast."""
+def test_main_missing_pr_url_shows_help(runner, monkeypatch):
+    """Running without PR URL shows help and exits cleanly (new behavior)."""
 
     monkeypatch.setattr(cli, "load_config", lambda: {})
     result = runner.invoke(cli.main, [])
-    assert result.exit_code == 1
-    assert "PR_URL is required" in result.output
+    assert result.exit_code == 0
+    assert "Usage: main [OPTIONS] [PR_URL]" in result.output
