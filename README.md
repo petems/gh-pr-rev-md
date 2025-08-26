@@ -11,6 +11,10 @@
 - Can print to stdout or write to a timestamped file
 - Configurable via CLI, env, and XDG config file
 
+## Demo
+
+[![asciicast](https://asciinema.org/a/676576.svg)](https://asciinema.org/a/676576)
+
 ## Installation
 
 Requirements: Python >= 3.9
