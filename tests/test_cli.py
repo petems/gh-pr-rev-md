@@ -343,9 +343,13 @@ def test_main_no_token_warning_allows_run(runner, monkeypatch):
         raising=True,
     )
 
+    # Ensure no token is set via environment variable
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
     result = runner.invoke(cli.main, ["https://github.com/owner/repo/pull/123"])
 
     assert result.exit_code == 0
+    # In Click testing, stderr is often captured along with stdout in result.output
     assert "Unauthenticated requests are limited" in result.output
 
 
@@ -569,144 +573,184 @@ def test_cli_with_period_argument_error(runner):
 
 def test_get_current_branch_pr_url_not_git_repo():
     """Test get_current_branch_pr_url when not in a git repository."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = FileNotFoundError("git not found")
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with pytest.raises(cli.click.BadParameter) as exc_info:
-            cli.get_current_branch_pr_url()
-        assert "Git is not installed" in str(exc_info.value)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("git not found")
+            
+            with pytest.raises(cli.click.BadParameter) as exc_info:
+                cli.get_current_branch_pr_url()
+            assert "Git is not installed" in str(exc_info.value)
 
 
 def test_get_current_branch_pr_url_no_git_dir():
     """Test get_current_branch_pr_url when not in a git repository."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.CalledProcessError(128, "git rev-parse")
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with pytest.raises(cli.click.BadParameter) as exc_info:
-            cli.get_current_branch_pr_url()
-        assert "Not in a git repository" in str(exc_info.value)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(128, "git rev-parse")
+            
+            with pytest.raises(cli.click.BadParameter) as exc_info:
+                cli.get_current_branch_pr_url()
+            assert "Not in a git repository" in str(exc_info.value)
 
 
 def test_get_current_branch_pr_url_no_origin_remote():
     """Test get_current_branch_pr_url when no origin remote is configured."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="main"),  # git branch succeeds
-            subprocess.CalledProcessError(1, "git remote get-url"),  # git remote get-url fails
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with pytest.raises(cli.click.BadParameter) as exc_info:
-            cli.get_current_branch_pr_url()
-        assert "No 'origin' remote found" in str(exc_info.value)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="main"),  # git branch succeeds
+                subprocess.CalledProcessError(1, "git remote get-url"),  # git remote get-url fails
+            ]
+            
+            with pytest.raises(cli.click.BadParameter) as exc_info:
+                cli.get_current_branch_pr_url()
+            assert "No 'origin' remote found" in str(exc_info.value)
 
 
 def test_get_current_branch_pr_url_invalid_remote_url():
     """Test get_current_branch_pr_url with invalid remote URL."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="main"),  # git branch succeeds
-            mock.MagicMock(returncode=0, stdout="https://gitlab.com/owner/repo.git"),  # invalid remote
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with pytest.raises(cli.click.BadParameter) as exc_info:
-            cli.get_current_branch_pr_url()
-        assert "Could not parse remote URL" in str(exc_info.value)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="main"),  # git branch succeeds
+                mock.MagicMock(returncode=0, stdout="https://gitlab.com/owner/repo.git"),  # invalid remote
+            ]
+            
+            with pytest.raises(cli.click.BadParameter) as exc_info:
+                cli.get_current_branch_pr_url()
+            assert "Could not parse remote URL" in str(exc_info.value)
 
 
 def test_get_current_branch_pr_url_success_with_api():
     """Test get_current_branch_pr_url successfully finding PR via GitHub API."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
-            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
-            mock_instance = mock.MagicMock()
-            mock_instance.find_pr_by_branch.return_value = 123
-            mock_client.return_value = mock_instance
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+                mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+            ]
             
-            result = cli.get_current_branch_pr_url("fake-token")
-            assert result == "https://github.com/owner/repo/pull/123"
+            with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+                mock_instance = mock.MagicMock()
+                mock_instance.find_pr_by_branch.return_value = 123
+                mock_client.return_value = mock_instance
+                
+                result = cli.get_current_branch_pr_url("fake-token")
+                assert result == "https://github.com/owner/repo/pull/123"
 
 
 def test_get_current_branch_pr_url_success_with_gh_cli():
     """Test get_current_branch_pr_url successfully finding PR via GitHub CLI."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
-            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
-            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo/pull/456"),  # gh pr view succeeds
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        result = cli.get_current_branch_pr_url()
-        assert result == "https://github.com/owner/repo/pull/456"
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+                mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+                mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo/pull/456"),  # gh pr view succeeds
+            ]
+            
+            result = cli.get_current_branch_pr_url()
+            assert result == "https://github.com/owner/repo/pull/456"
 
 
 def test_get_current_branch_pr_url_no_pr_found():
     """Test get_current_branch_pr_url when no PR is found for the branch."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
-            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
-            subprocess.CalledProcessError(1, "gh pr view"),  # gh pr view fails
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with pytest.raises(cli.click.BadParameter) as exc_info:
-            cli.get_current_branch_pr_url()
-        assert "No open pull request found" in str(exc_info.value)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+                mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+                subprocess.CalledProcessError(1, "gh pr view"),  # gh pr view fails
+            ]
+            
+            with pytest.raises(cli.click.BadParameter) as exc_info:
+                cli.get_current_branch_pr_url()
+            assert "No open pull request found" in str(exc_info.value)
 
 
 def test_get_current_branch_pr_url_detached_head():
     """Test get_current_branch_pr_url when in detached HEAD state."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout=""),  # git branch returns empty (detached HEAD)
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with pytest.raises(cli.click.BadParameter) as exc_info:
-            cli.get_current_branch_pr_url()
-        assert "Could not determine current branch" in str(exc_info.value)
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout=""),  # git branch returns empty (detached HEAD)
+            ]
+            
+            with pytest.raises(cli.click.BadParameter) as exc_info:
+                cli.get_current_branch_pr_url()
+            assert "Could not determine current branch" in str(exc_info.value)
 
 
 def test_get_current_branch_pr_url_ssh_remote():
     """Test get_current_branch_pr_url with SSH remote URL."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
-            mock.MagicMock(returncode=0, stdout="git@github.com:owner/repo.git"),  # SSH remote URL
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
-            mock_instance = mock.MagicMock()
-            mock_instance.find_pr_by_branch.return_value = 789
-            mock_client.return_value = mock_instance
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+                mock.MagicMock(returncode=0, stdout="git@github.com:owner/repo.git"),  # SSH remote URL
+            ]
             
-            result = cli.get_current_branch_pr_url("fake-token")
-            assert result == "https://github.com/owner/repo/pull/789"
+            with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+                mock_instance = mock.MagicMock()
+                mock_instance.find_pr_by_branch.return_value = 789
+                mock_client.return_value = mock_instance
+                
+                result = cli.get_current_branch_pr_url("fake-token")
+                assert result == "https://github.com/owner/repo/pull/789"
 
 
 def test_get_current_branch_pr_url_api_fallback_to_gh_cli():
     """Test get_current_branch_pr_url falls back to GitHub CLI when API fails."""
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            mock.MagicMock(returncode=0),  # git rev-parse succeeds
-            mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
-            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
-            mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo/pull/999"),  # gh pr view succeeds
-        ]
+    # Mock native parsing to fail, triggering subprocess fallback
+    with mock.patch("gh_pr_rev_md.cli.get_current_branch_pr_url_native") as mock_native:
+        mock_native.side_effect = cli.GitParsingError("Native parsing failed")
         
-        with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
-            mock_instance = mock.MagicMock()
-            mock_instance.find_pr_by_branch.side_effect = github_client.GitHubAPIError("API failed")
-            mock_client.return_value = mock_instance
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.MagicMock(returncode=0),  # git rev-parse succeeds
+                mock.MagicMock(returncode=0, stdout="feature-branch"),  # git branch succeeds
+                mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo.git"),  # remote URL
+                mock.MagicMock(returncode=0, stdout="https://github.com/owner/repo/pull/999"),  # gh pr view succeeds
+            ]
             
-            result = cli.get_current_branch_pr_url("fake-token")
-            assert result == "https://github.com/owner/repo/pull/999"
+            with mock.patch("gh_pr_rev_md.cli.GitHubClient") as mock_client:
+                mock_instance = mock.MagicMock()
+                mock_instance.find_pr_by_branch.side_effect = github_client.GitHubAPIError("API failed")
+                mock_client.return_value = mock_instance
+                
+                result = cli.get_current_branch_pr_url("fake-token")
+                assert result == "https://github.com/owner/repo/pull/999"
