@@ -337,7 +337,37 @@ def get_git_ref():
         return None
 
 
-@click.group()
+class DefaultGroup(click.Group):
+    """A Click group that routes to a default subcommand when none is provided.
+
+    This preserves backward-compatible usage like:
+      gh-pr-rev-md https://github.com/owner/repo/pull/123
+
+    while still supporting explicit subcommands, e.g. `gh-pr-rev-md fetch <args>`.
+    """
+
+    def __init__(self, *args, default_command: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.default_command = default_command
+
+    def resolve_command(self, ctx, args):  # type: ignore[override]
+        # If no args, fall through to default command (so fetch handles validation)
+        if (not args) and self.default_command:
+            cmd = self.get_command(ctx, self.default_command)
+            return self.default_command, cmd, args
+
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            # If the first token is not an option and we have a default command,
+            # dispatch to it (treat the token as the first arg to the default).
+            if self.default_command and args and not args[0].startswith("-"):
+                cmd = self.get_command(ctx, self.default_command)
+                return self.default_command, cmd, args
+            raise
+
+
+@click.group(cls=DefaultGroup, default_command="fetch")
 @click.version_option(
     __version__,
     "--version",

@@ -36,7 +36,11 @@ python -m pip install gh-pr-rev-md
 ## Quickstart
 
 ```bash
+# Backward-compatible default invocation (no subcommand):
 gh-pr-rev-md https://github.com/<owner>/<repo>/pull/123
+
+# Or explicitly via the fetch subcommand:
+gh-pr-rev-md fetch https://github.com/<owner>/<repo>/pull/123
 ```
 
 If you don’t set a token, unauthenticated requests are limited (~60/hour) and may hit rate limits. Set `GITHUB_TOKEN` or use `--token`.
@@ -44,7 +48,13 @@ If you don’t set a token, unauthenticated requests are limited (~60/hour) and 
 ## CLI Usage
 
 ```bash
+# Default behavior routes to the `fetch` subcommand
 gh-pr-rev-md [OPTIONS] PR_URL
+
+# Explicit subcommands
+gh-pr-rev-md fetch [OPTIONS] PR_URL
+gh-pr-rev-md version
+gh-pr-rev-md --version | -v
 ```
 
 Options:
@@ -54,6 +64,7 @@ Options:
 - `--include-outdated`: Include outdated review comments (on previous versions of the diff)
 - `--output` / `-o`: Save to auto-generated file name
 - `--output-file <path>`: Save to provided file path
+ - `version` subcommand: print the tool version (also `--version`/`-v`)
 
 URL format must be: `https://github.com/<owner>/<repo>/pull/<number>`
 
@@ -62,25 +73,33 @@ URL format must be: `https://github.com/<owner>/<repo>/pull/<number>`
 Print to stdout:
 
 ```bash
+# Either style works
 gh-pr-rev-md https://github.com/octocat/Hello-World/pull/42
+gh-pr-rev-md fetch https://github.com/octocat/Hello-World/pull/42
 ```
 
 Include resolved comments and save to a generated file:
 
 ```bash
 gh-pr-rev-md --include-resolved --output https://github.com/octocat/Hello-World/pull/42
+# or
+gh-pr-rev-md fetch --include-resolved --output https://github.com/octocat/Hello-World/pull/42
 ```
 
 Write to a specific file:
 
 ```bash
 gh-pr-rev-md --output-file review.md https://github.com/octocat/Hello-World/pull/42
+# or
+gh-pr-rev-md fetch --output-file review.md https://github.com/octocat/Hello-World/pull/42
 ```
 
 Provide token via env:
 
 ```bash
 GITHUB_TOKEN=ghp_xxx gh-pr-rev-md https://github.com/octocat/Hello-World/pull/42
+# or
+GITHUB_TOKEN=ghp_xxx gh-pr-rev-md fetch https://github.com/octocat/Hello-World/pull/42
 ```
 
 ## Configuration
