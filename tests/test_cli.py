@@ -343,8 +343,9 @@ def test_main_no_token_warning_allows_run(runner, monkeypatch):
         raising=True,
     )
 
-    # Ensure no token is set via environment variable
+    # Ensure no token is set via environment variable or config file
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr("gh_pr_rev_md.cli.load_config", lambda: {})
 
     result = runner.invoke(cli.main, ["https://github.com/owner/repo/pull/123"])
 
