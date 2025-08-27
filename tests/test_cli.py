@@ -264,8 +264,8 @@ def test_main_file_write_nested_directory(runner, mock_github_client, mock_forma
         )
 
         # This should fail because parent directories don't exist
-    assert result.exit_code == 1
-    assert "Error writing to file" in result.output
+        assert result.exit_code == 1
+        assert "Error writing to file" in result.output
 
 
 def test_main_file_write_nested_directory_with_create_dirs(
