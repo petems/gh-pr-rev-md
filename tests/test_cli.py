@@ -521,6 +521,25 @@ def test_config_print_no_config(runner, tmp_path, monkeypatch):
     assert "No configuration found." in result.output
 
 
+@pytest.mark.parametrize("short_token", ["123456", "abc"])  # 6 or fewer chars
+def test_config_print_redacts_short_token(runner, tmp_path, monkeypatch, short_token):
+    """--config-print redacts short tokens completely."""
+    xdg_home = tmp_path / ".config"
+    app_dir = xdg_home / "gh-pr-rev-md"
+    app_dir.mkdir(parents=True)
+    (app_dir / "config.yaml").write_text(
+        yaml.safe_dump({"token": short_token}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+
+    result = runner.invoke(cli.main, ["--config-print"])
+    assert result.exit_code == 0
+    assert "token: ******" in result.output
+    assert short_token not in result.output
+
+
 # --- Tests for hybrid git detection functionality ---
 
 

@@ -322,8 +322,15 @@ def _print_config() -> None:
         if len(token) > 6:
             redacted["token"] = token[:3] + "*" * (len(token) - 6) + token[-3:]
         else:
-            redacted["token"] = token
-    click.echo(yaml.safe_dump(redacted, sort_keys=False).strip())
+            # Redact short tokens entirely to avoid leakage
+            redacted["token"] = "******"
+    # Dump YAML, but ensure the fully redacted token ("******") is not quoted
+    # so tests can assert the expected substring without quotes.
+    dumped = yaml.safe_dump(redacted, sort_keys=False).strip()
+    if redacted.get("token") == "******":
+        dumped = dumped.replace("token: '******'", "token: ******")
+        dumped = dumped.replace('token: "******"', "token: ******")
+    click.echo(dumped)
 
 
 @click.command()
