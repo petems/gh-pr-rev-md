@@ -152,7 +152,7 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
             raise GitParsingError("Unable to extract repository information")
 
         host, owner, repo_name, branch = repo_info
-        
+
         return _resolve_pr_url(owner, repo_name, branch, host, token)
     except GitParsingError as e:
         # Re-raise as GitParsingError so the hybrid function can catch it
@@ -172,7 +172,9 @@ def parse_pr_url(url: str) -> Tuple[str, str, int]:
     return owner, repo, int(pr_number)
 
 
-def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Optional[str]) -> str:
+def _resolve_pr_url(
+    owner: str, repo: str, branch: str, host: str, token: Optional[str]
+) -> str:
     """Resolve PR URL by trying GitHub API first, then gh CLI; raise on failure."""
     # Try to find PR using GitHub API if token provided
     if token:
@@ -188,7 +190,18 @@ def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Option
     # Try to find the PR for the current branch using GitHub CLI
     try:
         result = subprocess.run(  # nosec B603 B607
-            ["gh", "pr", "view", branch, "--repo", f"{owner}/{repo}", "--json", "url", "--jq", ".url"],
+            [
+                "gh",
+                "pr",
+                "view",
+                branch,
+                "--repo",
+                f"{owner}/{repo}",
+                "--json",
+                "url",
+                "--jq",
+                ".url",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -359,6 +372,22 @@ def main(
     PR_URL should be in the format: https://github.com/owner/repo/pull/123
     or "." to use the current git branch's PR.
     """
+    # Show help text when no arguments or options are provided
+    if pr_url is None and not any(
+        [
+            token,
+            config_set,
+            include_resolved,
+            include_outdated,
+            output,
+            output_file,
+            create_dirs,
+        ]
+    ):
+        ctx = click.get_current_context()
+        click.echo(ctx.get_help())
+        ctx.exit()
+
     # If requested, run interactive config setup and exit early
     if config_set:
         try:
@@ -429,7 +458,7 @@ def main(
             file_path = Path(filename)
 
             try:
-                if create_dirs and file_path.parent != Path('.'):
+                if create_dirs and file_path.parent != Path("."):
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(markdown_output, encoding="utf-8")
                 click.echo(f"Output saved to: {file_path.absolute()}")

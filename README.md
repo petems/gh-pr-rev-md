@@ -62,8 +62,10 @@ If you don’t set a token, unauthenticated requests are limited (~60/hour) and 
 ## CLI Usage
 
 ```bash
-gh-pr-rev-md [OPTIONS] PR_URL
+gh-pr-rev-md [OPTIONS] [PR_URL]
 ```
+
+Running the command without any arguments displays this help message.
 
 Options:
 - `--token` (env: `GITHUB_TOKEN`): GitHub token for higher rate limits
