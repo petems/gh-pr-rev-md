@@ -51,13 +51,19 @@ Or with pip:
 python -m pip install gh-pr-rev-md
 ```
 
+## Demo
+
+See gh-pr-rev-md in action:
+
+![gh-pr-rev-md demo](docs/assets/demo.gif)
+
 ## Quickstart
 
 ```bash
 gh-pr-rev-md https://github.com/<owner>/<repo>/pull/123
 ```
 
-If you don’t set a token, unauthenticated requests are limited (~60/hour) and may hit rate limits. Set `GITHUB_TOKEN` or use `--token`.
+If you don't set a token, unauthenticated requests are limited (~60/hour) and may hit rate limits. Set `GITHUB_TOKEN` or use `--token`.
 
 ## CLI Usage
 
@@ -196,6 +202,29 @@ make activate
 # Alternatively, call the binary directly
 .venv/bin/gh-pr-rev-md https://github.com/owner/repo/pull/123
 ```
+
+### Demo Recording
+
+To update the demo GIF shown in the README:
+
+```bash
+# Check if recording tools are installed
+make demo-deps
+
+# Record and convert to GIF (uses default PR)
+make demo-record
+
+# Record with a custom PR
+make demo-record DEMO_PR="https://github.com/owner/repo/pull/456"
+
+# Clean demo files
+make demo-clean
+```
+
+Requirements:
+- `asciicinema` for recording (install with `brew install asciinema` or `pip install asciinema`)
+- `agg` for GIF conversion (install with `cargo install --git https://github.com/asciinema/agg`)
+- Alternative: `asciicast2gif` (`npm install -g asciicast2gif`)
 
 ### Project structure
 

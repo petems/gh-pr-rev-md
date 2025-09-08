@@ -23,11 +23,17 @@ help:
 	@echo "    docs-serve    - Serve documentation at http://localhost:8000"
 	@echo "    docs-clean    - Clean documentation build artifacts"
 	@echo ""
+	@echo "  Demo:"
+	@echo "    demo-deps     - Check demo recording dependencies"
+	@echo "    demo-record   - Record asciicinema demo and convert to GIF"
+	@echo "    demo-clean    - Clean demo files"
+	@echo ""
 	@echo "Examples:"
 	@echo "  make install"
 	@echo "  make docs-generate"
 	@echo "  make run ARGS='https://github.com/owner/repo/pull/123'"
 	@echo "  make docs-serve"
+	@echo "  make demo-record DEMO_PR='https://github.com/owner/repo/pull/456'"
 
 # Create a local virtual environment and install the project (dev dependencies)
 install:
@@ -84,3 +90,68 @@ run:
 # Start a shell with the venv activated (optional)
 activate:
 	. .venv/bin/activate && echo "Activated: $$(python -V)" && exec $$SHELL -i
+
+# Demo recording
+DEMO_PR ?= https://github.com/microsoft/vscode/pull/165155
+DEMO_OUTPUT_DIR ?= docs/assets
+DEMO_CAST_FILE ?= $(DEMO_OUTPUT_DIR)/demo.cast
+DEMO_GIF_FILE ?= $(DEMO_OUTPUT_DIR)/demo.gif
+
+# Check demo dependencies
+.PHONY: demo-deps
+demo-deps:
+	@echo "Checking demo recording dependencies..."
+	@if ! command -v asciicinema >/dev/null 2>&1; then \
+		echo "❌ asciicinema not found. Install with:"; \
+		echo "   brew install asciinema  # macOS"; \
+		echo "   or pip install asciinema"; \
+		exit 1; \
+	else \
+		echo "✅ asciicinema found"; \
+	fi
+	@if ! command -v agg >/dev/null 2>&1; then \
+		echo "⚠️  agg not found (recommended for GIF conversion)"; \
+		echo "   Install with: cargo install --git https://github.com/asciinema/agg"; \
+		echo "   Alternative: npm install -g asciicast2gif"; \
+	else \
+		echo "✅ agg found"; \
+	fi
+
+# Record asciicinema demo and convert to GIF
+.PHONY: demo-record
+demo-record: demo-deps
+	@echo "Recording asciicinema demo..."
+	@mkdir -p $(DEMO_OUTPUT_DIR)
+	@echo "Starting recording in 3 seconds. The demo will:"
+	@echo "1. Show the PR URL being used: $(DEMO_PR)"
+	@echo "2. Run gh-pr-rev-md against the PR"
+	@echo "3. Display the formatted review comments"
+	@echo ""
+	@echo "Press Ctrl+D when the demo is complete."
+	@sleep 3
+	@asciicinema rec $(DEMO_CAST_FILE) \
+		--title "gh-pr-rev-md Demo" \
+		--command "bash -c 'echo \"# gh-pr-rev-md Demo\"; echo \"# Fetching review comments from: $(DEMO_PR)\"; echo; uv run gh-pr-rev-md \"$(DEMO_PR)\"'"
+	@echo ""
+	@echo "Converting to GIF..."
+	@if command -v agg >/dev/null 2>&1; then \
+		echo "Using agg for conversion..."; \
+		agg $(DEMO_CAST_FILE) $(DEMO_GIF_FILE) --theme monokai --font-size 14; \
+	elif command -v asciicast2gif >/dev/null 2>&1; then \
+		echo "Using asciicast2gif for conversion..."; \
+		asciicast2gif $(DEMO_CAST_FILE) $(DEMO_GIF_FILE); \
+	else \
+		echo "⚠️  No GIF converter found. Asciicast saved to $(DEMO_CAST_FILE)"; \
+		echo "To convert manually, install one of:"; \
+		echo "  cargo install --git https://github.com/asciinema/agg"; \
+		echo "  npm install -g asciicast2gif"; \
+		exit 0; \
+	fi
+	@echo "✅ Demo files created:"
+	@echo "  Asciicast: $(DEMO_CAST_FILE)"
+	@if [ -f $(DEMO_GIF_FILE) ]; then echo "  GIF: $(DEMO_GIF_FILE)"; fi
+
+# Clean demo files
+.PHONY: demo-clean
+demo-clean:
+	rm -f $(DEMO_CAST_FILE) $(DEMO_GIF_FILE)
