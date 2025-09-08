@@ -68,6 +68,7 @@ gh-pr-rev-md [OPTIONS] PR_URL
 Options:
 - `--token` (env: `GITHUB_TOKEN`): GitHub token for higher rate limits
 - `--config-set`: Interactive setup to write an XDG config file
+- `--config-print`: Display current configuration (token redacted)
 - `--include-resolved`: Include resolved review comments
 - `--include-outdated`: Include outdated review comments (on previous versions of the diff)
 - `--output` / `-o`: Save to auto-generated file name
@@ -124,6 +125,12 @@ Create/update interactively:
 
 ```bash
 gh-pr-rev-md --config-set
+```
+
+Print current configuration:
+
+```bash
+gh-pr-rev-md --config-print
 ```
 
 ## Output format

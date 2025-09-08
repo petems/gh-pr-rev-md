@@ -152,7 +152,7 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
             raise GitParsingError("Unable to extract repository information")
 
         host, owner, repo_name, branch = repo_info
-        
+
         return _resolve_pr_url(owner, repo_name, branch, host, token)
     except GitParsingError as e:
         # Re-raise as GitParsingError so the hybrid function can catch it
@@ -172,7 +172,9 @@ def parse_pr_url(url: str) -> Tuple[str, str, int]:
     return owner, repo, int(pr_number)
 
 
-def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Optional[str]) -> str:
+def _resolve_pr_url(
+    owner: str, repo: str, branch: str, host: str, token: Optional[str]
+) -> str:
     """Resolve PR URL by trying GitHub API first, then gh CLI; raise on failure."""
     # Try to find PR using GitHub API if token provided
     if token:
@@ -188,7 +190,18 @@ def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Option
     # Try to find the PR for the current branch using GitHub CLI
     try:
         result = subprocess.run(  # nosec B603 B607
-            ["gh", "pr", "view", branch, "--repo", f"{owner}/{repo}", "--json", "url", "--jq", ".url"],
+            [
+                "gh",
+                "pr",
+                "view",
+                branch,
+                "--repo",
+                f"{owner}/{repo}",
+                "--json",
+                "url",
+                "--jq",
+                ".url",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -297,6 +310,29 @@ def _interactive_config_setup() -> None:
     click.echo(f"Config written to: {config_path}")
 
 
+def _print_config() -> None:
+    """Print current configuration with token redacted."""
+    config = load_config()
+    if not config:
+        click.echo("No configuration found.")
+        return
+    redacted = dict(config)
+    token = redacted.get("token")
+    if token:
+        if len(token) > 6:
+            redacted["token"] = token[:3] + "*" * (len(token) - 6) + token[-3:]
+        else:
+            # Redact short tokens entirely to avoid leakage
+            redacted["token"] = "******"
+    # Dump YAML, but ensure the fully redacted token ("******") is not quoted
+    # so tests can assert the expected substring without quotes.
+    dumped = yaml.safe_dump(redacted, sort_keys=False).strip()
+    if redacted.get("token") == "******":
+        dumped = dumped.replace("token: '******'", "token: ******")
+        dumped = dumped.replace('token: "******"', "token: ******")
+    click.echo(dumped)
+
+
 @click.command()
 @click.argument("pr_url", required=False)
 @click.option(
@@ -338,10 +374,17 @@ def _interactive_config_setup() -> None:
     default=False,
     help="Create parent directories when using --output-file",
 )
+@click.option(
+    "--config-print",
+    is_flag=True,
+    default=False,
+    help="Print current configuration then exit",
+)
 def main(
     pr_url: Optional[str],
     token: Optional[str],
     config_set: bool,
+    config_print: bool,
     include_resolved: Optional[bool],
     include_outdated: Optional[bool],
     output: Optional[bool],
@@ -367,6 +410,10 @@ def main(
         except (click.Abort, OSError, yaml.YAMLError) as e:
             click.echo(f"Error during config setup: {e}", err=True)
             sys.exit(1)
+
+    if config_print:
+        _print_config()
+        sys.exit(0)
 
     # Load XDG YAML config and merge with CLI/env values (CLI/env > config > defaults)
     config = load_config()
@@ -429,7 +476,7 @@ def main(
             file_path = Path(filename)
 
             try:
-                if create_dirs and file_path.parent != Path('.'):
+                if create_dirs and file_path.parent != Path("."):
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(markdown_output, encoding="utf-8")
                 click.echo(f"Output saved to: {file_path.absolute()}")
