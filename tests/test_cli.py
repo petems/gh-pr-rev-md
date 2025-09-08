@@ -103,6 +103,8 @@ def test_parse_pr_url_valid():
         "https://github.com/owner/repo/pull/",  # Missing PR number
         "https://github.com/owner/pull/123",  # Missing repo
         "https://github.com/owner/repo/issues/123",  # Issues instead of pull
+        "https://github.com/owner/repo/pull/123/",  # Trailing slash
+        "https://github.com/owner/repo/pull/123/commits",  # Extra path segment
         "https://gitlab.com/owner/repo/pull/123",  # Wrong domain
         "invalid-url",  # Completely invalid
         "",  # Empty string

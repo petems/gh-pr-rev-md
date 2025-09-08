@@ -161,8 +161,10 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
 
 def parse_pr_url(url: str) -> Tuple[str, str, int]:
     """Parse GitHub PR URL to extract owner, repo, and PR number."""
+    # Use fullmatch to ensure the entire URL matches the expected pattern
+    # and reject URLs with trailing paths (e.g. /pull/123/files)
     pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
-    match = re.match(pattern, url)
+    match = re.fullmatch(pattern, url.strip())
     if not match:
         raise click.BadParameter(
             "Invalid GitHub PR URL format. Expected: https://github.com/owner/repo/pull/123"
