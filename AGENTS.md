@@ -51,6 +51,31 @@ This project uses the `black` code formatter for Python. Before committing any c
 black .
 ```
 
+## Pre-Push Checklist
+
+Always run these before pushing. Never push without testing.
+
+1. Install dev dependencies (for linting/testing)
+   ```bash
+   uv pip install .[dev]
+   ```
+2. Format code (auto-fix style)
+   ```bash
+   uv run black .
+   ```
+3. Lint (fail on issues)
+   ```bash
+   uv run ruff check .
+   ```
+4. Run tests (ensure all pass)
+   ```bash
+   uv run pytest -q
+   ```
+5. Compile bytecode (catches syntax errors)
+   ```bash
+   uv run python -m compileall -q .
+   ```
+
 ## Architecture
 
 The project is structured as a Python package with a command-line interface.
