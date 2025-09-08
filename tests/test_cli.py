@@ -493,6 +493,34 @@ output_file: from_config.md
         assert not Path("from_config.md").exists()
 
 
+def test_config_print_redacts_token(runner, tmp_path, monkeypatch):
+    """--config-print shows config with token redacted."""
+    xdg_home = tmp_path / ".config"
+    app_dir = xdg_home / "gh-pr-rev-md"
+    app_dir.mkdir(parents=True)
+    (app_dir / "config.yaml").write_text(
+        yaml.safe_dump({"token": "abc123def456", "include_resolved": True}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+
+    result = runner.invoke(cli.main, ["--config-print"])
+    assert result.exit_code == 0
+    assert "token: abc******456" in result.output
+    assert "include_resolved: true" in result.output
+
+
+def test_config_print_no_config(runner, tmp_path, monkeypatch):
+    """--config-print handles missing configuration."""
+    xdg_home = tmp_path / ".config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+
+    result = runner.invoke(cli.main, ["--config-print"])
+    assert result.exit_code == 0
+    assert "No configuration found." in result.output
+
+
 # --- Tests for hybrid git detection functionality ---
 
 
