@@ -268,6 +268,29 @@ def test_main_file_write_nested_directory(runner, mock_github_client, mock_forma
         assert "Error writing to file" in result.output
 
 
+def test_main_file_write_nested_directory_with_create_dirs(
+    runner, mock_github_client, mock_formatter
+):
+    """Test file output to nested directory path when --create-dirs is used."""
+    with runner.isolated_filesystem():
+        nested_filename = "nested/dir/output.md"
+
+        result = runner.invoke(
+            cli.main,
+            [
+                "https://github.com/owner/repo/pull/123",
+                "--token",
+                "test_token",
+                "--output-file",
+                nested_filename,
+                "--create-dirs",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert Path(nested_filename).exists()
+
+
 def test_main_include_flags_integration(runner, mock_github_client, mock_formatter):
     """Test that --include-resolved and --include-outdated flags work."""
     with runner.isolated_filesystem():

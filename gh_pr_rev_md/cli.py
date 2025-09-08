@@ -332,6 +332,12 @@ def _interactive_config_setup() -> None:
 @click.option(
     "--output-file", type=str, default=None, help="Save output to specified file"
 )
+@click.option(
+    "--create-dirs",
+    is_flag=True,
+    default=False,
+    help="Create parent directories when using --output-file",
+)
 def main(
     pr_url: Optional[str],
     token: Optional[str],
@@ -340,6 +346,7 @@ def main(
     include_outdated: Optional[bool],
     output: Optional[bool],
     output_file: Optional[str],
+    create_dirs: bool,
 ):
     """Fetch GitHub PR review comments and output as markdown.
 
@@ -422,6 +429,8 @@ def main(
             file_path = Path(filename)
 
             try:
+                if create_dirs and file_path.parent != Path('.'):
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(markdown_output, encoding="utf-8")
                 click.echo(f"Output saved to: {file_path.absolute()}")
             except (OSError, PermissionError) as e:
