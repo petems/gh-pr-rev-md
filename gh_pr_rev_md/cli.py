@@ -152,7 +152,7 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
             raise GitParsingError("Unable to extract repository information")
 
         host, owner, repo_name, branch = repo_info
-        
+
         return _resolve_pr_url(owner, repo_name, branch, host, token)
     except GitParsingError as e:
         # Re-raise as GitParsingError so the hybrid function can catch it
@@ -161,8 +161,10 @@ def get_current_branch_pr_url_native(token: Optional[str] = None) -> str:
 
 def parse_pr_url(url: str) -> Tuple[str, str, int]:
     """Parse GitHub PR URL to extract owner, repo, and PR number."""
+    # Use fullmatch to ensure the entire URL matches the expected pattern
+    # and reject URLs with trailing paths (e.g. /pull/123/files)
     pattern = r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"
-    match = re.match(pattern, url)
+    match = re.fullmatch(pattern, url.strip())
     if not match:
         raise click.BadParameter(
             "Invalid GitHub PR URL format. Expected: https://github.com/owner/repo/pull/123"
@@ -172,7 +174,9 @@ def parse_pr_url(url: str) -> Tuple[str, str, int]:
     return owner, repo, int(pr_number)
 
 
-def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Optional[str]) -> str:
+def _resolve_pr_url(
+    owner: str, repo: str, branch: str, host: str, token: Optional[str]
+) -> str:
     """Resolve PR URL by trying GitHub API first, then gh CLI; raise on failure."""
     # Try to find PR using GitHub API if token provided
     if token:
@@ -188,7 +192,18 @@ def _resolve_pr_url(owner: str, repo: str, branch: str, host: str, token: Option
     # Try to find the PR for the current branch using GitHub CLI
     try:
         result = subprocess.run(  # nosec B603 B607
-            ["gh", "pr", "view", branch, "--repo", f"{owner}/{repo}", "--json", "url", "--jq", ".url"],
+            [
+                "gh",
+                "pr",
+                "view",
+                branch,
+                "--repo",
+                f"{owner}/{repo}",
+                "--json",
+                "url",
+                "--jq",
+                ".url",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -429,7 +444,7 @@ def main(
             file_path = Path(filename)
 
             try:
-                if create_dirs and file_path.parent != Path('.'):
+                if create_dirs and file_path.parent != Path("."):
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(markdown_output, encoding="utf-8")
                 click.echo(f"Output saved to: {file_path.absolute()}")
