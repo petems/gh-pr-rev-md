@@ -15,7 +15,7 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup uv
         uses: ./.github/actions/python-setup
         with:
@@ -30,7 +30,7 @@ jobs:
         continue-on-error: true
         run: uv run bandit -r gh_pr_rev_md -f sarif -o bandit.sarif
       - name: Upload SARIF (Bandit)
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: bandit.sarif
 
@@ -38,7 +38,7 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup uv
         uses: ./.github/actions/python-setup
         with:
